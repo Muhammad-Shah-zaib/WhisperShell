@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhisperShell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-base:     #0d0f14;
+      --bg-surface:  #13161e;
+      --bg-card:     #1a1e2a;
+      --border:      #252a38;
+      --accent:      #6c63ff;
+      --accent-glow: rgba(108, 99, 255, 0.25);
+      --red:         #ff4757;
+      --red-glow:    rgba(255, 71, 87, 0.25);
+      --green:       #2ed573;
+      --green-glow:  rgba(46, 213, 115, 0.2);
+      --amber:       #ffa502;
+      --amber-glow:  rgba(255, 165, 2, 0.2);
+      --text-primary:   #e8eaf0;
+      --text-secondary: #7a8099;
+      --text-muted:     #4a5068;
+      --radius:    14px;
+      --radius-sm:  8px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 480px;
+      padding: 0 20px;
+    }
+
+    /* ── Header ── */
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+    .logo-text {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #e8eaf0, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .tagline {
+      font-size: 13px;
+      color: var(--text-muted);
+      letter-spacing: 0.3px;
+    }
+
+    /* ── Status orb ── */
+    .status-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .orb-wrapper {
+      position: relative;
+      width: 100px;
+      height: 100px;
+      margin-bottom: 16px;
+    }
+    .orb {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      position: relative;
+      transition: background 0.4s ease, box-shadow 0.4s ease;
+    }
+    .orb::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      transition: border-color 0.4s ease;
+    }
+
+    /* Idle state */
+    .orb.idle {
+      background: radial-gradient(circle at 35% 35%, #1e2235, #13161e);
+      box-shadow: 0 0 0 var(--accent-glow);
+    }
+    .orb.idle::after { border-color: var(--border); }
+
+    /* Recording state */
+    .orb.recording {
+      background: radial-gradient(circle at 35% 35%, #2a1520, #1a0e14);
+      box-shadow: 0 0 40px var(--red-glow), 0 0 80px rgba(255,71,87,0.1);
+      animation: pulse-red 1.4s ease-in-out infinite;
+    }
+    .orb.recording::after { border-color: var(--red); }
+
+    /* Processing state */
+    .orb.processing {
+      background: radial-gradient(circle at 35% 35%, #1e2010, #151a0e);
+      box-shadow: 0 0 40px var(--amber-glow);
+      animation: spin-border 1.2s linear infinite;
+    }
+    .orb.processing::after { border-color: var(--amber); }
+
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 20px var(--red-glow); }
+      50%       { box-shadow: 0 0 50px var(--red-glow), 0 0 90px rgba(255,71,87,0.15); }
+    }
+    @keyframes spin-border {
+      to { transform: rotate(360deg); }
+    }
+
+    .status-label {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      transition: color 0.3s ease;
+    }
+    .status-label.idle       { color: var(--text-muted); }
+    .status-label.recording  { color: var(--red); }
+    .status-label.processing { color: var(--amber); }
+
+    /* ── Info cards ── */
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .card-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      width: 32px;
+      text-align: center;
+    }
+    .card-body { flex: 1; min-width: 0; }
+    .card-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+    }
+    .card-value {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-value.loading { color: var(--text-muted); font-style: italic; }
+    .card-value.ready   { color: var(--green); }
+    .card-value.error   { color: var(--red); }
+
+    .hotkey-badge {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+    kbd {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 2px 7px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    /* ── Transcript box ── */
+    .transcript-section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      min-height: 100px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .transcript-section.has-text {
+      border-color: var(--accent);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .transcript-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .transcript-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .copy-badge {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--green);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .copy-badge.visible { opacity: 1; }
+
+    .transcript-text {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text-primary);
+      word-break: break-word;
+      white-space: pre-wrap;
+      flex: 1;
+    }
+    .transcript-placeholder {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-style: italic;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── Fade in animation ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .container > * {
+      animation: fadeUp 0.5s ease both;
+    }
+    .header          { animation-delay: 0.05s; }
+    .status-section  { animation-delay: 0.10s; }
+    .cards           { animation-delay: 0.15s; }
+    .transcript-section { animation-delay: 0.20s; }
+    .footer          { animation-delay: 0.25s; }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <div class="logo-icon">🎙️</div>
+        <span class="logo-text">WhisperShell</span>
+      </div>
+      <p class="tagline">Local voice dictation · Vulkan/NVIDIA · Wayland</p>
+    </div>
+
+    <!-- Status orb -->
+    <div class="status-section">
+      <div class="orb-wrapper">
+        <div class="orb idle" id="orb">🎙️</div>
+      </div>
+      <span class="status-label idle" id="status-label">Idle</span>
+    </div>
+
+    <!-- Info cards -->
+    <div class="cards">
+
+      <div class="card">
+        <div class="card-icon">⌨️</div>
+        <div class="card-body">
+          <div class="card-label">Global Hotkey</div>
+          <div class="card-value">
+            <span class="hotkey-badge" id="hotkey-display">
+              <kbd>Ctrl</kbd><kbd>Space</kbd>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🧠</div>
+        <div class="card-body">
+          <div class="card-label">AI Model</div>
+          <div class="card-value loading" id="model-status">Loading model into VRAM…</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Transcript -->
+    <div class="transcript-section" id="transcript-section">
+      <div class="transcript-header">
+        <span class="transcript-label">Transcript</span>
+        <span class="copy-badge" id="copy-badge">✓ Copied to clipboard</span>
+      </div>
+      <div class="transcript-placeholder" id="transcript-placeholder">
+        Press <strong>Ctrl + Space</strong> to start recording.<br/>
+        Press again to stop and transcribe.
+      </div>
+      <div class="transcript-text" id="transcript-text" style="display:none;"></div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">Transcript is automatically copied — just Ctrl+V to paste anywhere.</div>
+
+  </div>
+
+  <script type="module">
+    const { invoke, event } = window.__TAURI__;
+
+    const orb           = document.getElementById('orb');
+    const statusLabel   = document.getElementById('status-label');
+    const modelStatus   = document.getElementById('model-status');
+    const transcriptBox = document.getElementById('transcript-section');
+    const placeholder   = document.getElementById('transcript-placeholder');
+    const transcriptEl  = document.getElementById('transcript-text');
+    const copyBadge     = document.getElementById('copy-badge');
+
+    // State icons and labels
+    const STATE_MAP = {
+      Idle:       { icon: '🎙️', label: 'Idle',       cls: 'idle'       },
+      Recording:  { icon: '🔴', label: 'Recording',  cls: 'recording'  },
+      Processing: { icon: '⚙️', label: 'Processing', cls: 'processing' },
+    };
+
+    function applyState(name) {
+      const s = STATE_MAP[name] || STATE_MAP.Idle;
+      orb.textContent = s.icon;
+      orb.className   = `orb ${s.cls}`;
+      statusLabel.textContent = s.label;
+      statusLabel.className   = `status-label ${s.cls}`;
+    }
+
+    // Listen for backend events
+    event.listen('state_changed', (e) => applyState(e.payload));
+
+    event.listen('model_ready', (e) => {
+      modelStatus.textContent = e.payload;
+      modelStatus.classList.remove('loading');
+      modelStatus.classList.add('ready');
+    });
+
+    event.listen('transcript_ready', (e) => {
+      const text = e.payload;
+
+      placeholder.style.display = 'none';
+      transcriptEl.style.display = 'block';
+      transcriptEl.textContent = text;
+
+      transcriptBox.classList.add('has-text');
+      copyBadge.classList.add('visible');
+      setTimeout(() => copyBadge.classList.remove('visible'), 3000);
+    });
+
+    event.listen('whisper_error', (e) => {
+      modelStatus.textContent = `Error: ${e.payload}`;
+      modelStatus.classList.remove('loading');
+      modelStatus.classList.add('error');
+    });
+
+    // Load initial info from Rust
+    invoke('get_app_info').then((info) => {
+      // hotkey is already hardcoded but model name can update
+      if (info.model) {
+        // don't replace until model_ready fires
+      }
+    });
+  </script>
+</body>
+</html>

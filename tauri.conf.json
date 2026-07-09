@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "whispershell",
+  "productName": "WhisperShell",
   "version": "0.1.0",
   "identifier": "com.whispershell.app",
   "build": {
@@ -10,9 +10,11 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "whispershell",
-        "width": 800,
-        "height": 600
+        "title": "WhisperShell",
+        "width": 520,
+        "height": 620,
+        "resizable": false,
+        "center": true
       }
     ],
     "security": {
