@@ -10,11 +10,11 @@ use injection::copy_to_clipboard;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 use whisper_rs::WhisperContext;
 
-// App state
+// ── App state ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
@@ -45,7 +45,7 @@ impl AppState {
 unsafe impl Send for AppState {}
 unsafe impl Sync for AppState {}
 
-// Tauri commands
+// ── Tauri commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn get_app_info() -> serde_json::Value {
@@ -64,20 +64,61 @@ fn get_status(state: tauri::State<Arc<Mutex<AppState>>>) -> serde_json::Value {
     })
 }
 
-// Helper
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 fn resolve_model_path() -> PathBuf {
-    // The binary runs from the workspace root; models live in tests/models/
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
-        .parent()                     // WhisperShell/
+        .parent()
         .expect("CARGO_MANIFEST_DIR has no parent")
         .join("tests")
         .join("models")
         .join(MODEL_NAME)
 }
 
-// Hotkey toggle logic
+// ── Overlay helpers ────────────────────────────────────────────────────────
+
+fn show_overlay(app: &AppHandle) {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        // Re-assert always-on-top on every show
+        let _ = overlay.set_always_on_top(true);
+
+        // Pure physical-pixel math — works correctly on all scale factors and
+        // multi-monitor setups. current_monitor() may return None if the window
+        // has never been shown yet; fall back to primary monitor.
+        let monitor_result = overlay
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| app.primary_monitor().ok().flatten());
+
+        if let Some(monitor) = monitor_result {
+            let scale   = monitor.scale_factor();
+            let mon_pos = monitor.position();
+            let mon_sz  = monitor.size();
+
+            // Window logical size (from tauri.conf.json): 320 × 80
+            let win_w  = (320.0 * scale) as u32;
+            let win_h  = (80.0  * scale) as u32;
+            let margin = (20.0  * scale) as u32;
+
+            let x = mon_pos.x + ((mon_sz.width.saturating_sub(win_w)) / 2) as i32;
+            let y = mon_pos.y + (mon_sz.height.saturating_sub(win_h + margin)) as i32;
+
+            let _ = overlay.set_position(PhysicalPosition::new(x, y));
+        }
+
+        let _ = overlay.show();
+    }
+}
+
+fn hide_overlay(app: &AppHandle) {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let _ = overlay.hide();
+    }
+}
+
+// ── Hotkey toggle logic ────────────────────────────────────────────────────
 
 fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
     let current_state = {
@@ -85,12 +126,11 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
         s.recording_state.clone()
     };
 
-    println!("[WhisperShell] 🔔 handle_hotkey_press called, current state: {:?}", current_state);
+    println!("[WhisperShell] 🔔 handle_hotkey_press — state: {:?}", current_state);
 
     match current_state {
         RecordingState::Idle => {
             println!("[WhisperShell] ▶️  Starting recording...");
-            // Start recording
             let mut s = shared_state.lock().unwrap();
             let mut recorder = match AudioRecorder::new() {
                 Ok(r) => r,
@@ -108,19 +148,18 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
             s.recorder = Some(recorder);
             s.recording_state = RecordingState::Recording;
             let _ = app.emit("state_changed", "Recording");
+            show_overlay(app);
         }
 
         RecordingState::Recording => {
             println!("[WhisperShell] ⏹️  Stopping recording — starting transcription...");
-            // Stop recording, process, transcribe
             let audio = {
                 let mut s = shared_state.lock().unwrap();
                 s.recording_state = RecordingState::Processing;
                 let _ = app.emit("state_changed", "Processing");
-
                 match s.recorder.as_mut() {
                     Some(rec) => rec.stop_and_get_audio(),
-                    None => Err("No active recorder".into()),
+                    None      => Err("No active recorder".into()),
                 }
             };
 
@@ -135,13 +174,12 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
                 }
             };
 
-            // Transcribe (this is CPU/GPU intensive — runs synchronously here since we're
-            // already on a background thread spawned by the shortcut handler)
+            // Transcribe — CPU/GPU intensive; already on a background thread
             let transcript = {
                 let s = shared_state.lock().unwrap();
                 match &s.whisper_ctx {
                     Some(ctx) => transcribe(ctx, &audio),
-                    None => Err("Whisper model not loaded".into()),
+                    None      => Err("Whisper model not loaded".into()),
                 }
             };
 
@@ -154,10 +192,18 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
                     }
                     s.last_transcript = text.clone();
                     let _ = app.emit("transcript_ready", text);
+
+                    // Auto-dismiss overlay after 2 s
+                    let app_clone = app.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_secs(2));
+                        hide_overlay(&app_clone);
+                    });
                 }
                 Err(e) => {
                     eprintln!("[WhisperShell] Transcription error: {e}");
                     let _ = app.emit("whisper_error", e);
+                    hide_overlay(app);
                 }
             }
 
@@ -166,75 +212,72 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
         }
 
         RecordingState::Processing => {
-            // Ignore hotkey while already processing
-            println!("[WhisperShell] Still processing, ignoring hotkey");
+            println!("[WhisperShell] Still processing — ignoring hotkey");
         }
     }
 }
 
-// Tauri entry point
+// ── Tauri entry point ──────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared_state = Arc::new(Mutex::new(AppState::new()));
-    let shared_state_for_setup = shared_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, shortcut, event| {
-                    // Log every raw shortcut event for debugging
-                    println!(
-                        "[WhisperShell] 🎹 Raw shortcut event: key={:?} mods={:?} state={:?}",
-                        shortcut.key, shortcut.mods, event.state()
-                    );
-
-                    // Only act on key-press (not release)
-                    if event.state() != ShortcutState::Pressed {
-                        return;
-                    }
-
-                    // Check it's our registered shortcut: Ctrl+Space
-                    let is_our_shortcut = shortcut.mods.contains(Modifiers::CONTROL)
-                        && shortcut.key == Code::Space;
-
-                    if is_our_shortcut {
-                        println!("[WhisperShell] ✅ Hotkey matched! Dispatching toggle...");
-                        let app_clone = app.clone();
-                        let state_clone = shared_state_for_setup.clone();
-                        // Spawn a new thread so we don't block the shortcut handler
-                        std::thread::spawn(move || {
-                            handle_hotkey_press(&app_clone, state_clone);
-                        });
-                    } else {
-                        println!("[WhisperShell] ⚠️  Shortcut event fired but did not match Ctrl+Space");
-                    }
-                })
-                .build(),
-        )
         .manage(shared_state.clone())
         .setup(move |app| {
-            // --- Register global shortcut: Ctrl + Space ---
-            app.global_shortcut()
-                .register(
-                    tauri_plugin_global_shortcut::Shortcut::new(
-                        Some(Modifiers::CONTROL),
-                        Code::Space,
-                    ),
-                )
-                .map_err(|e| format!("Failed to register global shortcut: {e}"))?;
-
-            println!("[WhisperShell] ✅ Global shortcut registered: {HOTKEY_DISPLAY}");
-
-            // --- Load Whisper model in a background thread so the window opens fast ---
-            let model_path = resolve_model_path();
             let app_handle = app.handle().clone();
+            let state_for_hotkey = shared_state.clone();
+
+            // ── Start IPC listener via Unix Domain Socket ────────────────
+            // Listens for external signals (like "--toggle-recording")
+            // Works securely on Wayland via custom system shortcuts.
+            std::thread::spawn(move || {
+                use std::io::Read;
+                use std::os::unix::net::UnixListener;
+                
+                let socket_path = "/tmp/whispershell.sock";
+                
+                // Remove existing socket if it exists (from a crashed run)
+                let _ = std::fs::remove_file(socket_path);
+                
+                match UnixListener::bind(socket_path) {
+                    Ok(listener) => {
+                        println!("[WhisperShell] ✅ IPC socket listener started at {}", socket_path);
+                        for stream in listener.incoming() {
+                            match stream {
+                                Ok(mut stream) => {
+                                    let mut buffer = String::new();
+                                    if let Ok(_) = stream.read_to_string(&mut buffer) {
+                                        if buffer == "TOGGLE" {
+                                            let app_clone = app_handle.clone();
+                                            let state_clone = state_for_hotkey.clone();
+                                            std::thread::spawn(move || {
+                                                handle_hotkey_press(&app_clone, state_clone);
+                                            });
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("[WhisperShell] Socket error: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[WhisperShell] ❌ Failed to bind IPC socket at {}: {}", socket_path, e);
+                    }
+                }
+            });
+
+            // ── Load Whisper model in background ──────────────────────────
+            let model_path = resolve_model_path();
+            let app_handle2     = app.handle().clone();
             let state_for_loader = shared_state.clone();
 
             std::thread::spawn(move || {
                 println!("[WhisperShell] Loading model from: {}", model_path.display());
-
                 match load_whisper_context(&model_path) {
                     Ok(ctx) => {
                         {
@@ -242,11 +285,11 @@ pub fn run() {
                             s.whisper_ctx = Some(ctx);
                         }
                         println!("[WhisperShell] ✅ Model loaded and ready!");
-                        let _ = app_handle.emit("model_ready", MODEL_DISPLAY_NAME);
+                        let _ = app_handle2.emit("model_ready", MODEL_DISPLAY_NAME);
                     }
                     Err(e) => {
                         eprintln!("[WhisperShell] ❌ Model load failed: {e}");
-                        let _ = app_handle.emit("whisper_error", format!("Model load failed: {e}"));
+                        let _ = app_handle2.emit("whisper_error", format!("Model load failed: {e}"));
                     }
                 }
             });

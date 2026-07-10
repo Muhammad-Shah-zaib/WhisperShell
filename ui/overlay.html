@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhisperShell Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-card: rgba(20, 23, 34, 0.88);
+      --border:  rgba(255, 255, 255, 0.09);
+      --red:     #ff4757;
+      --amber:   #ffa502;
+      --green:   #2ed573;
+      --text-primary:   #e8eaf0;
+      --text-muted:     #7a8099;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      /* Pin content to the bottom of the transparent window */
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 0;
+    }
+
+    /* ── Pill ── */
+    .pill {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      /* Compact padding: 9px top/bottom, 16px sides */
+      padding: 9px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 296px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+      /* Sit flush at the bottom of the webview */
+      margin-bottom: 0;
+    }
+
+    /* ── Dot / icon ── */
+    .dot {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 13px;
+    }
+
+    /* ── Text labels ── */
+    .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.9px;
+      line-height: 1;
+    }
+    .sublabel {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+      line-height: 1;
+    }
+
+    .info { display: flex; flex-direction: column; justify-content: center; flex: 1; min-width: 0; }
+
+    /* ── States ── */
+    .state { display: none; align-items: center; width: 100%; gap: 10px; }
+    .state.active { display: flex; }
+
+    /* Recording */
+    .rec-dot {
+      background: rgba(255, 71, 87, 0.18);
+      box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.5);
+      animation: ripple 1.4s ease-out infinite;
+    }
+    @keyframes ripple {
+      0%   { box-shadow: 0 0 0 0   rgba(255, 71, 87, 0.5); }
+      70%  { box-shadow: 0 0 0 8px rgba(255, 71, 87, 0);   }
+      100% { box-shadow: 0 0 0 0   rgba(255, 71, 87, 0);   }
+    }
+
+    /* Voicegram bars — very thin, minimal */
+    .bars {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 18px;
+      margin-top: 3px;
+    }
+    .bar {
+      width: 2.5px;
+      border-radius: 2px;
+      background: var(--red);
+      opacity: 0.85;
+      animation: vg 1s ease-in-out infinite alternate;
+      transform-origin: bottom center;
+    }
+    .bar:nth-child(1) { height: 5px;  animation-delay: 0.00s; }
+    .bar:nth-child(2) { height: 10px; animation-delay: 0.10s; }
+    .bar:nth-child(3) { height: 16px; animation-delay: 0.18s; }
+    .bar:nth-child(4) { height: 8px;  animation-delay: 0.28s; }
+    .bar:nth-child(5) { height: 13px; animation-delay: 0.05s; }
+    .bar:nth-child(6) { height: 18px; animation-delay: 0.22s; }
+    .bar:nth-child(7) { height: 9px;  animation-delay: 0.15s; }
+    .bar:nth-child(8) { height: 6px;  animation-delay: 0.30s; }
+    .bar:nth-child(9) { height: 14px; animation-delay: 0.08s; }
+    @keyframes vg {
+      from { transform: scaleY(0.35); }
+      to   { transform: scaleY(1); }
+    }
+
+    /* Processing */
+    .proc-ring {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 165, 2, 0.25);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Done */
+    .done-dot {
+      background: rgba(46, 213, 115, 0.18);
+      color: var(--green);
+      font-weight: 700;
+    }
+    .done-pill {
+      border-color: rgba(46, 213, 115, 0.35);
+      box-shadow: 0 0 16px rgba(46, 213, 115, 0.15);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="pill" id="pill">
+
+    <!-- Recording State -->
+    <div class="state active" id="state-recording">
+      <div class="dot rec-dot">🎙</div>
+      <div class="info">
+        <div class="label" style="color:var(--red);">Listening</div>
+        <div class="bars">
+          <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+          <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+          <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Processing State -->
+    <div class="state" id="state-processing">
+      <div class="proc-ring"></div>
+      <div class="info">
+        <div class="label" style="color:var(--amber);">Processing</div>
+        <div class="sublabel">Transcribing audio…</div>
+      </div>
+    </div>
+
+    <!-- Done State -->
+    <div class="state" id="state-done">
+      <div class="dot done-dot">✓</div>
+      <div class="info">
+        <div class="label" style="color:var(--green);">Copied!</div>
+        <div class="sublabel" id="transcript-preview"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module">
+    const { event } = window.__TAURI__;
+    const pill            = document.getElementById('pill');
+    const stateRecording  = document.getElementById('state-recording');
+    const stateProcessing = document.getElementById('state-processing');
+    const stateDone       = document.getElementById('state-done');
+    const txPreview       = document.getElementById('transcript-preview');
+
+    function show(el) {
+      [stateRecording, stateProcessing, stateDone].forEach(s => s.classList.remove('active'));
+      pill.classList.remove('done-pill');
+      el.classList.add('active');
+    }
+
+    event.listen('state_changed', (e) => {
+      if      (e.payload === 'Recording')  show(stateRecording);
+      else if (e.payload === 'Processing') show(stateProcessing);
+    });
+
+    event.listen('transcript_ready', (e) => {
+      show(stateDone);
+      pill.classList.add('done-pill');
+      txPreview.textContent = e.payload || '';
+    });
+  </script>
+
+</body>
+</html>
