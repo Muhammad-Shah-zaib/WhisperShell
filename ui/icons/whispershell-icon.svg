@@ -1,0 +1,39 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#1e1e2e"/>
+      <stop offset="60%" stop-color="#181825"/>
+      <stop offset="100%" stop-color="#11111b"/>
+    </radialGradient>
+
+    <linearGradient id="glyph" gradientUnits="userSpaceOnUse" x1="157" y1="256" x2="354" y2="256">
+      <stop offset="0%"  stop-color="#CBA6F7"/>
+      <stop offset="50%" stop-color="#B4BEFE"/>
+      <stop offset="100%" stop-color="#89B4FA"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#CBA6F7" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#CBA6F7" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+  </defs>
+
+  <!-- squircle background -->
+  <rect x="0" y="0" width="512" height="512" rx="110" ry="110" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="108.5" ry="108.5" fill="none" stroke="#313244" stroke-width="2" stroke-opacity="0.6"/>
+
+  <!-- ambient glow behind the mark, kept subtle/flat -->
+  <ellipse cx="255" cy="256" rx="170" ry="150" fill="url(#glow)" filter="url(#blur)"/>
+
+  <!-- glyph: shell prompt chevron + sound-broadcast arcs -->
+  <g fill="none" stroke="url(#glyph)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M174,190 L248,256 L174,322" stroke-width="34"/>
+    <path d="M296.1,222.6 A45,45 0 0,1 296.1,289.4"   stroke-width="28"/>
+    <path d="M319.5,196.6 A80,80 0 0,1 319.5,315.4"   stroke-width="24"/>
+    <path d="M342.9,170.6 A115,115 0 0,1 342.9,341.4" stroke-width="20"/>
+  </g>
+</svg>
