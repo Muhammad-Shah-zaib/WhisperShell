@@ -83,14 +83,30 @@ fn show_overlay(app: &AppHandle) {
         // Re-assert always-on-top on every show
         let _ = overlay.set_always_on_top(true);
 
-        // Pure physical-pixel math — works correctly on all scale factors and
-        // multi-monitor setups. current_monitor() may return None if the window
-        // has never been shown yet; fall back to primary monitor.
-        let monitor_result = overlay
-            .current_monitor()
-            .ok()
-            .flatten()
-            .or_else(|| app.primary_monitor().ok().flatten());
+        // Find monitor based on cursor position
+        let cursor = app.cursor_position().ok();
+        let monitors = app.available_monitors().unwrap_or_default();
+        let mut target_monitor = None;
+        if let Some(c) = cursor {
+            for m in &monitors {
+                let pos = m.position();
+                let size = m.size();
+                if c.x >= pos.x as f64 && c.x <= (pos.x + size.width as i32) as f64
+                    && c.y >= pos.y as f64 && c.y <= (pos.y + size.height as i32) as f64 {
+                    target_monitor = Some(m.clone());
+                    break;
+                }
+            }
+        }
+
+        // Fallback to current monitor or primary if cursor logic fails
+        let monitor_result = target_monitor.or_else(|| {
+            overlay
+                .current_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| app.primary_monitor().ok().flatten())
+        });
 
         if let Some(monitor) = monitor_result {
             let scale   = monitor.scale_factor();
@@ -100,7 +116,7 @@ fn show_overlay(app: &AppHandle) {
             // Window logical size (from tauri.conf.json): 320 × 80
             let win_w  = (320.0 * scale) as u32;
             let win_h  = (80.0  * scale) as u32;
-            let margin = (20.0  * scale) as u32;
+            let margin = (100.0 * scale) as u32; // Raised upwards
 
             let x = mon_pos.x + ((mon_sz.width.saturating_sub(win_w)) / 2) as i32;
             let y = mon_pos.y + (mon_sz.height.saturating_sub(win_h + margin)) as i32;

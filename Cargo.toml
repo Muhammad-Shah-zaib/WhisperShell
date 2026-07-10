@@ -32,3 +32,4 @@ whisper-rs = { version = "0.16", features = ["vulkan"] }
 
 # Clipboard write
 arboard = "3"
+mouse_position = "0.1.4"
