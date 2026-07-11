@@ -3,6 +3,7 @@ use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 
 pub struct AudioRecorder {
     // Raw PCM samples
@@ -40,7 +41,7 @@ impl AudioRecorder {
     }
 
     // Start capture
-    pub fn start(&mut self) -> Result<(), String> {
+    pub fn start(&mut self, app_handle: tauri::AppHandle) -> Result<(), String> {
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -63,6 +64,16 @@ impl AudioRecorder {
                     &stream_config,
                     move |data: &[f32], _: &_| {
                         buffer.lock().unwrap().extend_from_slice(data);
+                        
+                        // Calculate RMS (volume intensity)
+                        let mut sum_squares = 0.0;
+                        for &sample in data {
+                            sum_squares += sample * sample;
+                        }
+                        let rms = (sum_squares / data.len() as f32).sqrt();
+                        
+                        // Emit to frontend (lightweight IPC)
+                        let _ = app_handle.emit("audio_level", rms);
                     },
                     err_fn,
                     None,
@@ -146,4 +157,20 @@ impl AudioRecorder {
 
         Ok(output)
     }
+}
+
+pub fn save_wav(audio: &[f32], path: &std::path::Path) -> Result<(), String> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: 16000,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut writer = hound::WavWriter::create(path, spec)
+        .map_err(|e| format!("Failed to create wav writer: {e}"))?;
+    for &sample in audio {
+        writer.write_sample(sample).map_err(|e| format!("Failed to write sample: {e}"))?;
+    }
+    writer.finalize().map_err(|e| format!("Failed to finalize wav file: {e}"))?;
+    Ok(())
 }

@@ -4,7 +4,6 @@ mod inference;
 mod injection;
 
 use audio::AudioRecorder;
-use constants::{HOTKEY_DISPLAY, MODEL_DISPLAY_NAME, MODEL_NAME};
 use inference::{load_whisper_context, transcribe};
 use injection::copy_to_clipboard;
 
@@ -12,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+
 use whisper_rs::WhisperContext;
 
 // ── App state ──────────────────────────────────────────────────────────────
@@ -47,12 +47,22 @@ unsafe impl Sync for AppState {}
 
 // ── Tauri commands ─────────────────────────────────────────────────────────
 
+use constants::HOTKEY_DISPLAY;
+
 #[tauri::command]
-fn get_app_info() -> serde_json::Value {
+fn get_app_info(app: tauri::AppHandle) -> serde_json::Value {
+    let config = load_config(app);
+    let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo");
+    
     serde_json::json!({
-        "model": MODEL_DISPLAY_NAME,
+        "model": get_model_display_name(model_key),
         "hotkey": HOTKEY_DISPLAY,
     })
+}
+
+#[tauri::command]
+fn log_to_terminal(msg: String) {
+    println!("[Frontend] {}", msg);
 }
 
 #[tauri::command]
@@ -64,16 +74,200 @@ fn get_status(state: tauri::State<Arc<Mutex<AppState>>>) -> serde_json::Value {
     })
 }
 
+#[tauri::command]
+fn select_directory() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn select_file() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_file()
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn get_installed_models(app: tauri::AppHandle) -> Vec<String> {
+    let mut models = Vec::new();
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        let models_dir = data_dir.join("models");
+        if let Ok(entries) = std::fs::read_dir(models_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.ends_with(".bin") {
+                                models.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    models
+}
+
+#[tauri::command]
+fn load_config(app: tauri::AppHandle) -> serde_json::Value {
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let config_path = config_dir.join("config.json");
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(json) = serde_json::from_str(&content) {
+                return json;
+            }
+        }
+    }
+    
+    // Default config
+    serde_json::json!({
+        "model": "turbo",
+        "history_limit": "5",
+        "overlay_size": "small",
+        "voice_recordings_dir": "~/.local/share/whispershell/recordings",
+        "messages_log_file": "~/.local/share/whispershell/messages.log",
+        "error_logs_dir": "~/.local/state/whispershell/errors"
+    })
+}
+
+#[tauri::command]
+fn save_config(app: tauri::AppHandle, state: tauri::State<Arc<Mutex<AppState>>>, config: serde_json::Value) -> Result<(), String> {
+    let old_config = load_config(app.clone());
+    let old_model = old_config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo").to_string();
+    let new_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo").to_string();
+    
+    let model_changed = old_model != new_model;
+
+    // --- Migration Logic ---
+    let old_voice_dir = expand_tilde(old_config.get("voice_recordings_dir").and_then(|v| v.as_str()).unwrap_or(""));
+    let new_voice_dir = expand_tilde(config.get("voice_recordings_dir").and_then(|v| v.as_str()).unwrap_or(""));
+    if old_voice_dir != new_voice_dir && old_voice_dir.exists() && !new_voice_dir.as_os_str().is_empty() {
+        let _ = std::fs::create_dir_all(&new_voice_dir);
+        if let Ok(entries) = std::fs::read_dir(&old_voice_dir) {
+            for entry in entries.flatten() {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_file() && entry.path().extension().and_then(|s| s.to_str()) == Some("wav") {
+                        let new_path = new_voice_dir.join(entry.file_name());
+                        if std::fs::copy(entry.path(), &new_path).is_ok() {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let old_msg_log = expand_tilde(old_config.get("messages_log_file").and_then(|v| v.as_str()).unwrap_or(""));
+    let new_msg_log = expand_tilde(config.get("messages_log_file").and_then(|v| v.as_str()).unwrap_or(""));
+    if old_msg_log != new_msg_log && old_msg_log.exists() && !new_msg_log.as_os_str().is_empty() {
+        if let Some(parent) = new_msg_log.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::copy(&old_msg_log, &new_msg_log).is_ok() {
+            let _ = std::fs::remove_file(&old_msg_log);
+        }
+    }
+
+    let old_err_dir = expand_tilde(old_config.get("error_logs_dir").and_then(|v| v.as_str()).unwrap_or(""));
+    let new_err_dir = expand_tilde(config.get("error_logs_dir").and_then(|v| v.as_str()).unwrap_or(""));
+    if old_err_dir != new_err_dir && old_err_dir.exists() && !new_err_dir.as_os_str().is_empty() {
+        let _ = std::fs::create_dir_all(&new_err_dir);
+        if let Ok(entries) = std::fs::read_dir(&old_err_dir) {
+            for entry in entries.flatten() {
+                if let Ok(ft) = entry.file_type() {
+                    if ft.is_file() {
+                        let new_path = new_err_dir.join(entry.file_name());
+                        if std::fs::copy(entry.path(), &new_path).is_ok() {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // --- End Migration Logic ---
+
+    // --- Prune according to new history limit ---
+    let new_history_limit: usize = config.get("history_limit").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(5);
+    
+    if new_voice_dir.exists() && !new_voice_dir.as_os_str().is_empty() {
+        prune_directory(&new_voice_dir, new_history_limit);
+    }
+    if new_msg_log.exists() && !new_msg_log.as_os_str().is_empty() {
+        prune_log_file(&new_msg_log, new_history_limit);
+    }
+    if new_err_dir.exists() && !new_err_dir.as_os_str().is_empty() {
+        let err_log = new_err_dir.join("errors.log");
+        if err_log.exists() {
+            prune_log_file(&err_log, new_history_limit);
+        }
+    }
+
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    let config_path = config_dir.join("config.json");
+    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(config_path, content).map_err(|e| e.to_string())?;
+
+    if model_changed {
+        let app_handle = app.clone();
+        let state_for_loader = state.inner().clone();
+        
+        std::thread::spawn(move || {
+            let _ = app_handle.emit("model_loading", ());
+            let model_path = resolve_model_path(&app_handle);
+            println!("[WhisperShell] Dynamic swap: Loading model from: {}", model_path.display());
+            
+            match load_whisper_context(&model_path) {
+                Ok(ctx) => {
+                    {
+                        let mut s = state_for_loader.lock().unwrap();
+                        s.whisper_ctx = Some(ctx);
+                    }
+                    println!("[WhisperShell] ✅ Dynamic model swap complete!");
+                    let _ = app_handle.emit("model_ready", get_model_display_name(&new_model));
+                }
+                Err(e) => {
+                    eprintln!("[WhisperShell] ❌ Dynamic model swap failed: {e}");
+                    let _ = app_handle.emit("whisper_error", format!("Model load failed: {e}"));
+                }
+            }
+        });
+    }
+
+    let _ = app.emit("config_updated", ());
+
+    Ok(())
+}
+
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn resolve_model_path() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir
-        .parent()
-        .expect("CARGO_MANIFEST_DIR has no parent")
-        .join("tests")
-        .join("models")
-        .join(MODEL_NAME)
+fn resolve_model_path(app: &tauri::AppHandle) -> PathBuf {
+    let config = load_config(app.clone());
+    let selected_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo");
+    
+    let filename = match selected_model {
+        "base" => "ggml-base.en.bin",
+        "turbo" => "ggml-large-v3-turbo.bin",
+        "large" => "ggml-large-v3.bin",
+        "parakeet" => "parakeet-v3.bin",
+        _ => "ggml-large-v3-turbo.bin",
+    };
+
+    app.path().app_data_dir().unwrap_or_default().join("models").join(filename)
+}
+
+fn get_model_display_name(model_key: &str) -> &'static str {
+    match model_key {
+        "base" => "Whisper Base",
+        "turbo" => "Whisper Turbo",
+        "large" => "Whisper Large v3",
+        "parakeet" => "Parakeet v3",
+        _ => "Unknown Model",
+    }
 }
 
 // ── Overlay helpers ────────────────────────────────────────────────────────
@@ -83,20 +277,25 @@ fn show_overlay(app: &AppHandle) {
         // Re-assert always-on-top on every show
         let _ = overlay.set_always_on_top(true);
 
-        // Find monitor based on cursor position
-        let cursor = app.cursor_position().ok();
-        let monitors = app.available_monitors().unwrap_or_default();
+        // Since XWayland cursor position is stale on GNOME Wayland (it only updates when hovering over X11 windows),
+        // we use a Wayland trick to find the true active monitor: we spawn a tiny, invisible dummy window.
+        // GNOME's window manager natively places new windows on the active monitor (where the cursor or focus is).
+        // We then read its monitor, close it immediately, and use that as our target!
         let mut target_monitor = None;
-        if let Some(c) = cursor {
-            for m in &monitors {
-                let pos = m.position();
-                let size = m.size();
-                if c.x >= pos.x as f64 && c.x <= (pos.x + size.width as i32) as f64
-                    && c.y >= pos.y as f64 && c.y <= (pos.y + size.height as i32) as f64 {
-                    target_monitor = Some(m.clone());
-                    break;
-                }
-            }
+        if let Ok(dummy) = tauri::WebviewWindowBuilder::new(
+            app,
+            "dummy_probe",
+            tauri::WebviewUrl::App("overlay.html".into())
+        )
+        .inner_size(1.0, 1.0)
+        .transparent(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(true)
+        .build() {
+            target_monitor = dummy.current_monitor().ok().flatten();
+            let _ = dummy.close();
         }
 
         // Fallback to current monitor or primary if cursor logic fails
@@ -107,6 +306,9 @@ fn show_overlay(app: &AppHandle) {
                 .flatten()
                 .or_else(|| app.primary_monitor().ok().flatten())
         });
+        
+        // Show the overlay FIRST so the window manager maps it
+        let _ = overlay.show();
 
         if let Some(monitor) = monitor_result {
             let scale   = monitor.scale_factor();
@@ -116,15 +318,21 @@ fn show_overlay(app: &AppHandle) {
             // Window logical size (from tauri.conf.json): 320 × 80
             let win_w  = (320.0 * scale) as u32;
             let win_h  = (80.0  * scale) as u32;
-            let margin = (100.0 * scale) as u32; // Raised upwards
+            
+            // To mimic CSS "bottom: 15%", we calculate the margin dynamically based on the monitor's height.
+            // This ensures it looks proportionally lifted on ANY screen resolution (4K, 1080p, etc.)
+            let margin = (mon_sz.height as f64 * 0.15) as u32; 
 
+            // This math does exactly what CSS `left: 50%; transform: translateX(-50%)` does!
             let x = mon_pos.x + ((mon_sz.width.saturating_sub(win_w)) / 2) as i32;
             let y = mon_pos.y + (mon_sz.height.saturating_sub(win_h + margin)) as i32;
 
+            // Move the window AFTER it's mapped to override GNOME's auto-placement
             let _ = overlay.set_position(PhysicalPosition::new(x, y));
+            
+            // In XWayland/GNOME, sometimes setting focus helps or setting position again
+            let _ = overlay.set_focus();
         }
-
-        let _ = overlay.show();
     }
 }
 
@@ -156,7 +364,7 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
                     return;
                 }
             };
-            if let Err(e) = recorder.start() {
+            if let Err(e) = recorder.start(app.clone()) {
                 eprintln!("[WhisperShell] Start recording error: {e}");
                 let _ = app.emit("whisper_error", e);
                 return;
@@ -199,6 +407,12 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
                 }
             };
 
+            let config = load_config(app.clone());
+            let history_limit: usize = config.get("history_limit").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(5);
+            let voice_dir = expand_tilde(config.get("voice_recordings_dir").and_then(|v| v.as_str()).unwrap_or(""));
+            let msg_log = expand_tilde(config.get("messages_log_file").and_then(|v| v.as_str()).unwrap_or(""));
+            let err_dir = expand_tilde(config.get("error_logs_dir").and_then(|v| v.as_str()).unwrap_or(""));
+
             let mut s = shared_state.lock().unwrap();
             match transcript {
                 Ok(text) => {
@@ -207,7 +421,29 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
                         eprintln!("[WhisperShell] Clipboard error: {e}");
                     }
                     s.last_transcript = text.clone();
-                    let _ = app.emit("transcript_ready", text);
+                    let _ = app.emit("transcript_ready", text.clone());
+
+                    if !voice_dir.as_os_str().is_empty() {
+                        let _ = std::fs::create_dir_all(&voice_dir);
+                        let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                        let audio_path = voice_dir.join(format!("recording_{}.wav", timestamp));
+                        if let Err(e) = crate::audio::save_wav(&audio, &audio_path) {
+                            eprintln!("[WhisperShell] Failed to save wav: {}", e);
+                        }
+                        prune_directory(&voice_dir, history_limit);
+                    }
+
+                    if !msg_log.as_os_str().is_empty() {
+                        if let Some(parent) = msg_log.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        use std::io::Write;
+                        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&msg_log) {
+                            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                            let _ = writeln!(f, "[{}] {}", timestamp, text);
+                        }
+                        prune_log_file(&msg_log, history_limit);
+                    }
 
                     // Auto-dismiss overlay after 2 s
                     let app_clone = app.clone();
@@ -218,8 +454,19 @@ fn handle_hotkey_press(app: &AppHandle, shared_state: Arc<Mutex<AppState>>) {
                 }
                 Err(e) => {
                     eprintln!("[WhisperShell] Transcription error: {e}");
-                    let _ = app.emit("whisper_error", e);
+                    let _ = app.emit("whisper_error", e.clone());
                     hide_overlay(app);
+                    
+                    if !err_dir.as_os_str().is_empty() {
+                        let _ = std::fs::create_dir_all(&err_dir);
+                        use std::io::Write;
+                        let err_log = err_dir.join("errors.log");
+                        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&err_log) {
+                            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                            let _ = writeln!(f, "[{}] {}", timestamp, e);
+                        }
+                        prune_log_file(&err_log, history_limit);
+                    }
                 }
             }
 
@@ -249,6 +496,7 @@ pub fn run() {
             // ── Start IPC listener via Unix Domain Socket ────────────────
             // Listens for external signals (like "--toggle-recording")
             // Works securely on Wayland via custom system shortcuts.
+            let app_handle_for_ipc = app_handle.clone();
             std::thread::spawn(move || {
                 use std::io::Read;
                 use std::os::unix::net::UnixListener;
@@ -266,11 +514,24 @@ pub fn run() {
                                 Ok(mut stream) => {
                                     let mut buffer = String::new();
                                     if let Ok(_) = stream.read_to_string(&mut buffer) {
-                                        if buffer == "TOGGLE" {
-                                            let app_clone = app_handle.clone();
+                                        let cmd = buffer.trim();
+                                        if cmd == "TOGGLE" {
+                                            let app_clone = app_handle_for_ipc.clone();
                                             let state_clone = state_for_hotkey.clone();
                                             std::thread::spawn(move || {
                                                 handle_hotkey_press(&app_clone, state_clone);
+                                            });
+                                        } else if cmd == "TOGGLE_CONFIG" {
+                                            let app_clone = app_handle_for_ipc.clone();
+                                            std::thread::spawn(move || {
+                                                if let Some(main_window) = app_clone.get_webview_window("main") {
+                                                    if main_window.is_visible().unwrap_or(false) {
+                                                        let _ = main_window.hide();
+                                                    } else {
+                                                        let _ = main_window.show();
+                                                        let _ = main_window.set_focus();
+                                                    }
+                                                }
                                             });
                                         }
                                     }
@@ -288,7 +549,7 @@ pub fn run() {
             });
 
             // ── Load Whisper model in background ──────────────────────────
-            let model_path = resolve_model_path();
+            let model_path = resolve_model_path(&app_handle);
             let app_handle2     = app.handle().clone();
             let state_for_loader = shared_state.clone();
 
@@ -301,7 +562,9 @@ pub fn run() {
                             s.whisper_ctx = Some(ctx);
                         }
                         println!("[WhisperShell] ✅ Model loaded and ready!");
-                        let _ = app_handle2.emit("model_ready", MODEL_DISPLAY_NAME);
+                        let config = load_config(app_handle2.clone());
+                        let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo");
+                        let _ = app_handle2.emit("model_ready", get_model_display_name(model_key));
                     }
                     Err(e) => {
                         eprintln!("[WhisperShell] ❌ Model load failed: {e}");
@@ -312,7 +575,61 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_app_info, get_status])
+        .invoke_handler(tauri::generate_handler![
+            get_app_info, 
+            get_status,
+            select_directory,
+            select_file,
+            get_installed_models,
+            load_config,
+            save_config,
+            log_to_terminal
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if path.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(&path[2..]);
+        }
+    }
+    PathBuf::from(path)
+}
+
+fn prune_directory(dir: &PathBuf, limit: usize) {
+    if limit == 0 { return; }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut files: Vec<_> = entries.flatten()
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("wav"))
+            .filter_map(|e| {
+                e.metadata().ok().and_then(|m| m.modified().ok()).map(|time| (e.path(), time))
+            })
+            .collect();
+        
+        files.sort_by(|a, b| a.1.cmp(&b.1)); // oldest first
+        
+        if files.len() > limit {
+            for (path, _) in files.iter().take(files.len() - limit) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+}
+
+fn prune_log_file(file: &PathBuf, limit: usize) {
+    if limit == 0 { return; }
+    if let Ok(content) = std::fs::read_to_string(file) {
+        let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.len() > limit {
+            let to_keep = &lines[lines.len() - limit..];
+            if let Ok(mut f) = std::fs::File::create(file) {
+                use std::io::Write;
+                for line in to_keep {
+                    let _ = writeln!(f, "{}", line);
+                }
+            }
+        }
+    }
 }

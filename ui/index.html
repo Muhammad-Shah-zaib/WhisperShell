@@ -6,211 +6,392 @@
   <title>WhisperShell</title>
   <link rel="icon" type="image/svg+xml" href="icons/whispershell-icon.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    
-    :root {
-      --bg-base:     #0b090f;
-      --bg-card:     #120f18;
-      --border:      rgba(180, 160, 220, 0.15);
-      --accent:      #b4a0e5;
-      --text-primary: #e8eaf0;
-      --text-muted:   #8a829e;
-      --radius:      12px;
-      
-      --red:         #ff6b81;
-      --amber:       #ff9f43;
-    }
-
-    body {
-      background: var(--bg-base);
-      color: var(--text-primary);
-      font-family: 'Inter', sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    .container {
-      width: 440px;
-      padding: 24px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border);
-      padding-bottom: 12px;
-    }
-    
-    .logo-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .logo-group img {
-      width: 20px;
-      height: 20px;
-    }
-
-    .title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .status-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .badge {
+      font-size: 0.75rem;
+      background: #b4a0e522;
+      color: #b4a0e5;
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin-left: 12px;
       font-weight: 500;
+      border: 1px solid #b4a0e544;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: default;
     }
-    
-    .status-dot {
-      width: 8px;
-      height: 8px;
+    .model-status-dot {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--text-muted);
-      transition: background 0.3s;
+      transition: border 0.2s ease, background 0.2s ease;
+      box-sizing: content-box;
     }
-    .status-dot.idle { background: var(--text-muted); }
-    .status-dot.recording { background: var(--red); box-shadow: 0 0 8px var(--red); }
-    .status-dot.processing { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
-    
-    .info-row {
-      display: flex;
-      justify-content: space-between;
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-    
-    kbd {
-      background: rgba(180, 160, 220, 0.1);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 2px 6px;
-      font-family: monospace;
-      color: var(--accent);
-    }
-
-    .transcript-box {
-      background: rgba(0,0,0,0.2);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 16px;
-      min-height: 80px;
-      font-size: 14px;
-      line-height: 1.5;
-      color: var(--text-primary);
-      position: relative;
-    }
-
-    .placeholder {
-      color: var(--text-muted);
-      font-style: italic;
-      text-align: center;
-    }
-    
-    .copy-badge {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      font-size: 10px;
-      color: var(--accent);
-      background: rgba(180, 160, 220, 0.1);
-      padding: 2px 6px;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity 0.3s;
-    }
-    .copy-badge.visible {
-      opacity: 1;
+    .model-status-dot.green { background: #4ade80; }
+    .model-status-dot.yellow { background: #facc15; }
+    .model-status-dot.red { background: #f87171; }
+    .badge:hover .model-status-dot {
+      border: 1px solid var(--lavender);
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="logo-group">
-        <img src="icons/whispershell-icon.svg" alt="Logo" />
-        <span class="title">WhisperShell</span>
-      </div>
-      <div class="status-group">
-        <div class="status-dot idle" id="orb"></div>
-        <span id="status-label">Idle</span>
-      </div>
+  
+  <header class="app-header" data-tauri-drag-region>
+    <div class="logo-group" data-tauri-drag-region>
+      <img src="icons/whispershell-icon.svg" alt="WhisperShell Logo" data-tauri-drag-region />
+      <span data-tauri-drag-region>WhisperShell</span>
     </div>
     
-    <div class="info-row">
-      <span>Trigger: <kbd>whispershell --toggle-recording</kbd></span>
-      <span id="model-status">Loading model…</span>
-    </div>
-
-    <div class="transcript-box" id="transcript-section">
-      <div class="copy-badge" id="copy-badge">Copied!</div>
-      <div id="transcript-placeholder" class="placeholder">
-        Run trigger command to start recording.
+    <div class="header-right">
+      <div class="status-indicator" id="status-indicator">
+      <!-- Idle State -->
+      <div class="state active" id="state-idle">
+        <div class="idle-dot"></div>
       </div>
-      <div id="transcript-text" style="display:none;"></div>
+      <!-- Recording State -->
+      <div class="state" id="state-recording">
+        <div class="bars">
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+        </div>
+      </div>
+      <!-- Processing State -->
+      <div class="state" id="state-processing">
+        <div class="dots">
+          <div class="dot-jump"></div>
+          <div class="dot-jump"></div>
+          <div class="dot-jump"></div>
+        </div>
+      </div>
+      <!-- Done State -->
+      <div class="state" id="state-done">
+        <div class="done-icon"><span class="iconify" data-icon="mdi:check"></span></div>
+      </div>
+      
+      <!-- Window Controls -->
+      <div class="window-controls">
+        <div class="control-btn minimize" id="titlebar-minimize" title="Minimize">
+          <span class="iconify" data-icon="mdi:minus"></span>
+        </div>
+        <div class="control-btn close" id="titlebar-close" title="Close">
+          <span class="iconify" data-icon="mdi:close"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <model-selection></model-selection>
+    <hotkey-setup></hotkey-setup>
+    <file-paths></file-paths>
+    <history-limit></history-limit>
+    <overlay-size></overlay-size>
+  </main>
+
+  <div class="actions-footer">
+    <div class="actions-footer-inner">
+      <button class="btn btn-secondary">
+        <span class="iconify" data-icon="mdi:undo"></span>
+        Reset
+      </button>
+      <button class="btn btn-primary">
+        <span class="iconify" data-icon="mdi:content-save"></span>
+        Save
+      </button>
     </div>
   </div>
 
+  <!-- Load Web Components -->
+  <script type="module" src="app.js"></script>
+
+  <!-- Tauri Event Listeners for Status -->
   <script type="module">
-    const { invoke, event } = window.__TAURI__;
+    const invoke = window.__TAURI__.core ? window.__TAURI__.core.invoke : window.__TAURI__.invoke;
+    const event = window.__TAURI__.event || window.__TAURI__.core?.event;
 
-    const orb           = document.getElementById('orb');
-    const statusLabel   = document.getElementById('status-label');
-    const modelStatus   = document.getElementById('model-status');
-    const placeholder   = document.getElementById('transcript-placeholder');
-    const transcriptEl  = document.getElementById('transcript-text');
-    const copyBadge     = document.getElementById('copy-badge');
+    function rustLog(msg) {
+      if (typeof msg === 'object') {
+        msg = JSON.stringify(msg, null, 2);
+      }
+      invoke('log_to_terminal', { msg }).catch(console.error);
+    }
+    
+    // Window Controls
+    document.getElementById('titlebar-minimize').addEventListener('click', () => {
+      window.__TAURI__.window.getCurrentWindow().minimize();
+    });
+    
+    document.getElementById('titlebar-close').addEventListener('click', () => {
+      window.__TAURI__.window.getCurrentWindow().hide();
+    });
 
-    const STATE_MAP = {
-      Idle:       { label: 'Idle',       cls: 'idle'       },
-      Recording:  { label: 'Recording',  cls: 'recording'  },
-      Processing: { label: 'Processing', cls: 'processing' },
-    };
+    document.querySelector('.app-header').addEventListener('mousedown', (e) => {
+      if (e.button === 0 && !e.target.closest('.window-controls')) {
+        window.__TAURI__.window.getCurrentWindow().startDragging();
+      }
+    });
 
-    function applyState(name) {
-      const s = STATE_MAP[name] || STATE_MAP.Idle;
-      orb.className = `status-dot ${s.cls}`;
-      statusLabel.textContent = s.label;
+    const stateIdle = document.getElementById('state-idle');
+    const stateRecording = document.getElementById('state-recording');
+    const stateProcessing = document.getElementById('state-processing');
+    const stateDone = document.getElementById('state-done');
+
+    function showState(el) {
+      [stateIdle, stateRecording, stateProcessing, stateDone].forEach(s => s.classList.remove('active'));
+      el.classList.add('active');
     }
 
-    event.listen('state_changed', (e) => applyState(e.payload));
+    event.listen('state_changed', (e) => {
+      if (e.payload === 'Recording') {
+        showState(stateRecording);
+      } else {
+        // Reset bars when stopping recording
+        const bars = document.querySelectorAll('.bar');
+        bars.forEach(bar => {
+           bar.style.animation = ''; 
+           bar.style.transform = '';
+           bar.style.height = ''; // Clear JS inline heights
+        });
+        
+        if (e.payload === 'Processing') {
+          showState(stateProcessing);
+        } else if (e.payload === 'Idle') {
+          showState(stateIdle);
+        }
+      }
+    });
 
-    event.listen('model_ready', (e) => {
-      modelStatus.textContent = e.payload;
+    event.listen('audio_level', (e) => {
+      const rms = e.payload;
+      
+      // Calculate a base height based on RMS. RMS for speech usually peaks around 0.1 - 0.2.
+      // We map rms 0.0 -> height 3px, rms 0.15 -> height 16px.
+      const baseHeight = Math.min(16, Math.max(3, 3 + (rms * 86)));
+
+      const bars = document.querySelectorAll('.bar');
+      const multipliers = [0.5, 0.8, 1.0, 0.9, 0.6]; // Bell curve for a classic waveform look
+      
+      bars.forEach((bar, i) => {
+        bar.style.animation = 'none'; // Stop CSS animation
+        bar.style.transform = 'none'; // Clear any previous scaleY
+        
+        let jitter = 0;
+        if (rms > 0.01) {
+            // Add a little randomness when actually speaking
+            jitter = (Math.random() * 4) - 2; 
+        }
+        
+        let h = (baseHeight * multipliers[i]) + jitter;
+        h = Math.min(16, Math.max(3, h)); // Constrain strictly between 3px and 16px
+        bar.style.height = `${h}px`;
+      });
     });
 
     event.listen('transcript_ready', (e) => {
-      const text = e.payload;
-      placeholder.style.display = 'none';
-      transcriptEl.style.display = 'block';
-      transcriptEl.textContent = text;
-      
-      copyBadge.classList.add('visible');
-      setTimeout(() => copyBadge.classList.remove('visible'), 3000);
+      showState(stateDone);
+      // Reset back to idle after 3 seconds
+      setTimeout(() => showState(stateIdle), 3000);
+    });
+
+    function updateModelBadge(text, statusColor) {
+      const modelBadge = document.getElementById('active-model-badge');
+      if (!modelBadge) return;
+      const nameEl = modelBadge.querySelector('.model-name');
+      const dotEl = modelBadge.querySelector('.model-status-dot');
+      if (text) nameEl.innerText = text;
+      if (statusColor) {
+        dotEl.className = `model-status-dot ${statusColor}`;
+      }
+    }
+
+    event.listen('model_loading', () => {
+      const saveBtn = document.querySelector('.btn-primary');
+      saveBtn.classList.add('disabled');
+      saveBtn.innerHTML = `<span class="iconify spin" data-icon="mdi:loading"></span> Loading Model...`;
+      updateModelBadge('Loading...', 'yellow');
+    });
+
+    event.listen('model_ready', (e) => {
+      const saveBtn = document.querySelector('.btn-primary');
+      saveBtn.classList.add('disabled'); // disabled because it just matched the new saved state
+      saveBtn.innerHTML = `<span class="iconify" data-icon="mdi:check"></span> Model Loaded!`;
+      setTimeout(() => {
+        saveBtn.innerHTML = `<span class="iconify" data-icon="mdi:content-save"></span> Save`;
+        checkChanges(); // Re-eval disabled state
+      }, 2000);
+
+      // Update the active model badge
+      updateModelBadge(e.payload, 'green');
     });
 
     event.listen('whisper_error', (e) => {
-      modelStatus.textContent = `Error: ${e.payload}`;
+      updateModelBadge('Error Loading', 'red');
     });
 
-    invoke('get_app_info').then((info) => {
-      // reserved for future use
+    let initialConfig = {};
+
+    function getCurrentFormState() {
+      const model = document.querySelector('model-selection').querySelector('custom-select').value;
+      const history_limit = document.querySelector('history-limit').querySelector('custom-select').value;
+      const overlay_size = document.querySelector('overlay-size').value;
+      
+      const filePaths = document.querySelector('file-paths');
+      const voice_recordings_dir = filePaths.querySelector('#voice-recordings-dir').value;
+      const messages_log_file = filePaths.querySelector('#messages-log-file').value;
+      const error_logs_dir = filePaths.querySelector('#error-logs-dir').value;
+
+      return { model, history_limit, overlay_size, voice_recordings_dir, messages_log_file, error_logs_dir };
+    }
+
+    function checkChanges() {
+      // Small timeout to allow input values to update
+      setTimeout(() => {
+        const current = getCurrentFormState();
+        let changed = false;
+        for (const key in initialConfig) {
+          if (current[key] !== initialConfig[key]) {
+            changed = true;
+            break;
+          }
+        }
+        
+        const saveBtn = document.querySelector('.btn-primary');
+        const resetBtn = document.querySelector('.btn-secondary');
+        
+        if (changed) {
+          saveBtn.classList.remove('disabled');
+          resetBtn.classList.remove('disabled');
+        } else {
+          saveBtn.classList.add('disabled');
+          resetBtn.classList.add('disabled');
+        }
+      }, 50);
+    }
+
+    // Bind change events to all inputs
+    document.addEventListener('change', checkChanges, true);
+    document.addEventListener('input', checkChanges, true);
+
+    // Fetch and apply initial config
+    async function initConfig() {
+      try {
+        const config = await invoke('load_config');
+        initialConfig = config;
+        
+        const appInfo = await invoke('get_app_info');
+        
+        // Update active model badge initially
+        updateModelBadge(appInfo.model, 'green');
+
+        // Wait for elements to be defined
+        await customElements.whenDefined('model-selection');
+        await customElements.whenDefined('history-limit');
+        await customElements.whenDefined('overlay-size');
+        await customElements.whenDefined('file-paths');
+        
+        setTimeout(() => {
+          const modelSelect = document.querySelector('model-selection').querySelector('custom-select');
+          if (modelSelect) {
+            // Force it to a valid key if it happens to be something else, but config should be solid.
+            // Actually, we'll just set it. If it doesn't match, CustomSelect will fallback to options[0], 
+            // but we should ensure the attribute reflects what is ACTUALLY selected so checkChanges works!
+            modelSelect.setAttribute('value', config.model);
+            
+            // Wait a tick for CustomSelect to process the attribute, then force sync the value property to whatever it decided to select
+            setTimeout(() => {
+              config.model = modelSelect.value;
+              initialConfig.model = modelSelect.value;
+              checkChanges(); // init disabled state
+            }, 50);
+          }
+          
+          const historySelect = document.querySelector('history-limit').querySelector('custom-select');
+          if (historySelect) {
+            historySelect.setAttribute('value', config.history_limit);
+            setTimeout(() => {
+              config.history_limit = historySelect.value;
+              initialConfig.history_limit = historySelect.value;
+            }, 50);
+          }
+          
+          const sizeElement = document.querySelector('overlay-size');
+          if (sizeElement) {
+            sizeElement.setAttribute('value', config.overlay_size || 'small');
+            setTimeout(() => {
+              config.overlay_size = sizeElement.value;
+              initialConfig.overlay_size = sizeElement.value;
+            }, 50);
+          }
+          
+          const filePaths = document.querySelector('file-paths');
+          if (filePaths) {
+            filePaths.querySelector('#voice-recordings-dir').value = config.voice_recordings_dir || "";
+            filePaths.querySelector('#messages-log-file').value = config.messages_log_file || "";
+            filePaths.querySelector('#error-logs-dir').value = config.error_logs_dir || "";
+          }
+        }, 100); // small delay to ensure inner HTML of components is rendered
+      } catch (e) {
+        rustLog('Failed to load config: ' + e);
+        console.error('Failed to load config:', e);
+      }
+    }
+    
+    // Call init
+    initConfig();
+
+    // Handle button clicks
+    document.querySelector('.btn-primary').addEventListener('click', async (e) => {
+      if (e.currentTarget.classList.contains('disabled')) {
+        rustLog('No changes detected in the form. Save aborted.');
+        return;
+      }
+      
+      rustLog('--- SAVE BUTTON CLICKED ---');
+      const config = getCurrentFormState();
+
+      rustLog('Previous config: ' + JSON.stringify(initialConfig));
+      rustLog('New config to save: ' + JSON.stringify(config));
+
+      try {
+        await invoke('save_config', { config });
+        rustLog('Saved config successfully!');
+        
+        initialConfig = config; // Update baseline
+        
+        const saveBtn = document.querySelector('.btn-primary');
+        // Only show "Saved!" if we aren't currently loading a model
+        if (!saveBtn.innerHTML.includes('Loading Model')) {
+          const originalText = `<span class="iconify" data-icon="mdi:content-save"></span> Save`;
+          saveBtn.innerHTML = `<span class="iconify" data-icon="mdi:check"></span> Saved!`;
+          saveBtn.classList.add('disabled');
+          setTimeout(() => {
+            saveBtn.innerHTML = originalText;
+            checkChanges(); // Reset based on new state
+          }, 2000);
+        }
+      } catch (e) {
+        rustLog('Failed to save config: ' + e);
+        console.error('Failed to save config:', e);
+      }
+    });
+
+    document.querySelector('.btn-secondary').addEventListener('click', async (e) => {
+      if (e.currentTarget.classList.contains('disabled')) {
+        rustLog('No changes detected in the form. Reset aborted.');
+        return;
+      }
+      await initConfig();
+      rustLog('Reset to last saved config!');
     });
   </script>
 </body>

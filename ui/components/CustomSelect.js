@@ -1,0 +1,183 @@
+export class CustomSelect extends HTMLElement {
+  constructor() {
+    super();
+    this.options = [];
+    this.value = '';
+    this.isOpen = false;
+    this._handleOutside = this._handleOutside.bind(this);
+  }
+
+  get value() {
+    return this.getAttribute('value') || '';
+  }
+
+  set value(v) {
+    this.setAttribute('value', v);
+  }
+
+  static get observedAttributes() {
+    return ['options', 'value'];
+  }
+
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (oldValue !== newValue) {
+      if (name === 'options') {
+        try {
+          this.options = JSON.parse(newValue);
+        } catch (e) {
+          console.error("Invalid options JSON", e);
+        }
+      }
+      // We don't need to manually set this.value = newValue because we use getter/setter to attribute
+      this.render();
+    }
+  }
+
+  connectedCallback() {
+    if (!this.value && this.options.length > 0) {
+      this.value = this.options[0].value;
+    }
+    this.render();
+    document.addEventListener('click', this._handleOutside);
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener('click', this._handleOutside);
+  }
+
+  _handleOutside(e) {
+    if (!this.contains(e.target) && this.isOpen) {
+      this.isOpen = false;
+      const dropdown = this.querySelector('.custom-select-dropdown');
+      if (dropdown) dropdown.classList.remove('open');
+    }
+  }
+
+  get selectedOption() {
+    // strict string comparison since attribute values are strings
+    return this.options.find(o => String(o.value) === String(this.value)) || this.options[0];
+  }
+
+  render() {
+    const sel = this.selectedOption;
+    this.innerHTML = `
+      <style>
+        .custom-select-wrapper {
+          position: relative;
+          width: 100%;
+          cursor: pointer;
+          user-select: none;
+        }
+        .custom-select-trigger {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+          color: var(--silver);
+          font-size: 14px;
+          padding-bottom: 8px;
+          border-bottom: 1px solid var(--border);
+          transition: color 0.2s ease, border-color 0.2s ease;
+        }
+        /* When wrapper is hovered, or when open */
+        .custom-select-wrapper:hover .custom-select-trigger,
+        .custom-select-wrapper.open .custom-select-trigger {
+          color: var(--lavender);
+          border-color: var(--lavender);
+        }
+        .custom-select-wrapper.open .custom-select-trigger .iconify {
+          transform: rotate(180deg);
+        }
+        .custom-select-dropdown {
+          position: absolute;
+          top: 100%;
+          left: -12px;
+          right: -12px;
+          background: var(--bg-card);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+          margin-top: 12px;
+          z-index: 999;
+          display: none;
+          flex-direction: column;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.8);
+          max-height: 250px;
+          overflow-y: auto;
+        }
+        .custom-select-dropdown.open {
+          display: flex;
+        }
+        .custom-select-option {
+          padding: 12px 16px;
+          color: var(--silver);
+          font-size: 14px;
+          transition: background 0.2s ease, color 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .custom-select-option:hover:not(.disabled) {
+          background: var(--hover-bg);
+          color: var(--lavender);
+        }
+        .custom-select-option.disabled {
+          color: rgba(138, 130, 158, 0.4); /* Much more muted */
+          cursor: not-allowed;
+        }
+        .custom-select-option.selected {
+          color: var(--lavender);
+          background: var(--hover-bg);
+        }
+        .status-tag {
+          font-size: 11px;
+          background: rgba(180, 160, 220, 0.1);
+          color: var(--text-muted);
+          padding: 2px 6px;
+          border-radius: 4px;
+        }
+      </style>
+      <div class="custom-select-wrapper ${this.isOpen ? 'open' : ''}">
+        <div class="custom-select-trigger">
+          <span class="trigger-label">${sel ? sel.label : 'Select an option'}</span>
+          <span class="iconify" data-icon="mdi:chevron-down" style="font-size: 20px; transition: transform 0.2s ease;"></span>
+        </div>
+        <div class="custom-select-dropdown ${this.isOpen ? 'open' : ''}">
+          ${this.options.map(o => `
+            <div class="custom-select-option ${o.value === this.value ? 'selected' : ''} ${o.disabled ? 'disabled' : ''}" data-value="${o.value}">
+              <span>${o.label}</span>
+              ${o.disabled ? '<span class="status-tag">Need to be downloaded</span>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    const wrapper = this.querySelector('.custom-select-wrapper');
+    const dropdown = this.querySelector('.custom-select-dropdown');
+    
+    wrapper.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.isOpen = !this.isOpen;
+      wrapper.classList.toggle('open', this.isOpen);
+      dropdown.classList.toggle('open', this.isOpen);
+    });
+
+    const optionEls = this.querySelectorAll('.custom-select-option');
+    optionEls.forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (el.classList.contains('disabled')) return;
+        
+        this.isOpen = false;
+        this.value = el.dataset.value;
+        // this.render() is called automatically because setting this.value calls setAttribute, 
+        // which triggers attributeChangedCallback which calls this.render().
+        this.dispatchEvent(new CustomEvent('change', { 
+          detail: { value: this.value },
+          bubbles: true,
+          composed: true
+        }));
+      });
+    });
+  }
+}

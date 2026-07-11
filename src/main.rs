@@ -9,17 +9,21 @@ fn main() {
         eprintln!("[WhisperShell] 🔧 Wayland detected — forcing GDK_BACKEND=x11 (XWayland) for global hotkey support");
     }
 
-    // Check if the CLI toggle command was invoked
-    if std::env::args().any(|arg| arg == "--toggle-recording") {
+    // Check if any CLI command was invoked
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--toggle-recording" || arg == "--toggle-config") {
+        let is_recording = args.iter().any(|arg| arg == "--toggle-recording");
+        let signal: &[u8] = if is_recording { b"TOGGLE" } else { b"TOGGLE_CONFIG" };
+        
         let socket_path = "/tmp/whispershell.sock";
         use std::io::Write;
         match std::os::unix::net::UnixStream::connect(socket_path) {
             Ok(mut stream) => {
-                if let Err(e) = stream.write_all(b"TOGGLE") {
-                    eprintln!("[WhisperShell CLI] Failed to send toggle signal: {}", e);
+                if let Err(e) = stream.write_all(signal) {
+                    eprintln!("[WhisperShell CLI] Failed to send signal: {}", e);
                     std::process::exit(1);
                 }
-                println!("[WhisperShell CLI] Toggle signal sent successfully.");
+                println!("[WhisperShell CLI] Signal sent successfully.");
                 std::process::exit(0);
             }
             Err(e) => {

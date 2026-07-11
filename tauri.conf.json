@@ -13,7 +13,10 @@
         "title": "WhisperShell",
         "width": 520,
         "height": 620,
-        "resizable": false,
+        "resizable": true,
+        "maximizable": false,
+        "decorations": false,
+        "transparent": true,
         "center": true
       },
       {

@@ -77,6 +77,7 @@
       opacity: 0.9;
       animation: vg 0.8s ease-in-out infinite alternate;
       transform-origin: bottom center;
+      transition: height 75ms ease-out;
     }
     .bar:nth-child(1) { height: 8px;  animation-delay: 0.0s; }
     .bar:nth-child(2) { height: 14px; animation-delay: 0.2s; }
@@ -161,10 +162,35 @@
 
   <script type="module">
     const { event } = window.__TAURI__;
+    const invoke = window.__TAURI__.core ? window.__TAURI__.core.invoke : window.__TAURI__.invoke;
     const pill            = document.getElementById('pill');
     const stateRecording  = document.getElementById('state-recording');
     const stateProcessing = document.getElementById('state-processing');
     const stateDone       = document.getElementById('state-done');
+
+    async function applyOverlaySize() {
+      try {
+        const config = await invoke('load_config');
+        const size = config.overlay_size || 'small';
+        if (size === 'small') {
+          pill.style.zoom = '1';
+        } else if (size === 'medium') {
+          pill.style.zoom = '1.25';
+        } else if (size === 'large') {
+          pill.style.zoom = '1.5';
+        } else if (size === 'xlarge') {
+          pill.style.zoom = '1.75';
+        }
+      } catch (e) {
+        console.error('Failed to load config for overlay size:', e);
+      }
+    }
+
+    applyOverlaySize();
+
+    event.listen('config_updated', () => {
+      applyOverlaySize();
+    });
 
     function show(el) {
       [stateRecording, stateProcessing, stateDone].forEach(s => s.classList.remove('active'));
@@ -172,8 +198,45 @@
     }
 
     event.listen('state_changed', (e) => {
-      if      (e.payload === 'Recording')  show(stateRecording);
-      else if (e.payload === 'Processing') show(stateProcessing);
+      if (e.payload === 'Recording') {
+        show(stateRecording);
+      } else {
+        // Reset bars when stopping recording
+        const bars = document.querySelectorAll('.bar');
+        bars.forEach(bar => {
+           bar.style.animation = ''; 
+           bar.style.transform = '';
+           bar.style.height = ''; // Clear JS inline heights
+        });
+        
+        if (e.payload === 'Processing') show(stateProcessing);
+      }
+    });
+
+    event.listen('audio_level', (e) => {
+      const rms = e.payload;
+      
+      // Calculate a base height based on RMS. RMS for speech usually peaks around 0.1 - 0.2.
+      // We map rms 0.0 -> height 3px, rms 0.15 -> height 16px.
+      const baseHeight = Math.min(16, Math.max(3, 3 + (rms * 86)));
+
+      const bars = document.querySelectorAll('.bar');
+      const multipliers = [0.5, 0.8, 1.0, 0.9, 0.6]; // Bell curve for a classic waveform look
+      
+      bars.forEach((bar, i) => {
+        bar.style.animation = 'none'; // Stop CSS animation
+        bar.style.transform = 'none'; // Clear any previous scaleY
+        
+        let jitter = 0;
+        if (rms > 0.01) {
+            // Add a little randomness when actually speaking
+            jitter = (Math.random() * 4) - 2; 
+        }
+        
+        let h = (baseHeight * multipliers[i]) + jitter;
+        h = Math.min(16, Math.max(3, h)); // Constrain strictly between 3px and 16px
+        bar.style.height = `${h}px`;
+      });
     });
 
     event.listen('transcript_ready', (e) => {
