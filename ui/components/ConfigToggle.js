@@ -1,4 +1,4 @@
-export class HotkeySetup extends HTMLElement {
+export class ConfigToggle extends HTMLElement {
   constructor() {
     super();
     this.innerHTML = `
@@ -53,26 +53,28 @@ export class HotkeySetup extends HTMLElement {
         }
       </style>
       <div class="section-container">
-        <div class="accordion-header" id="hotkey-header">
-          <span>How to set up your Hotkey</span>
-          <span class="iconify icon" id="hotkey-icon" data-icon="mdi:chevron-right"></span>
+        <div class="accordion-header" id="config-header">
+          <span>How to bring this window back</span>
+          <span class="iconify icon" id="config-icon" data-icon="mdi:chevron-right"></span>
         </div>
-        <div class="accordion-content" id="hotkey-content">
+        <div class="accordion-content" id="config-content">
           <ul>
-            <li>Open your system preferences (e.g., GNOME Settings).</li>
-            <li>Navigate to Keyboard shortcuts.</li>
-            <li>Add a new custom shortcut mapped to this exact command:<br>
-              <code style="margin-top: 4px; display: inline-block;">whispershell --toggle-recording</code>
+            <li>You can safely close this window (X); WhisperShell will continue running in the background.</li>
+            <li style="margin-top: 8px;">To bring this configuration window back up, you can either:</li>
+            <li style="margin-top: 4px; margin-left: 12px;"><strong>1.</strong> Launch the WhisperShell app again from your desktop or application menu.</li>
+            <li style="margin-top: 4px; margin-left: 12px;"><strong>2.</strong> Run the following command in your terminal:</li>
+            <li style="margin-top: 4px; margin-left: 24px;">
+              <code style="display: inline-block;">whispershell --toggle-config</code>
             </li>
-            <li>Use a memorable combination like <strong>Ctrl + Space</strong>.</li>
+            <li style="margin-top: 8px;"><strong>Pro Tip:</strong> Just like the recording hotkey, you can bind this command to a custom keyboard shortcut in your system settings to pop your config up instantly from anywhere!</li>
           </ul>
         </div>
       </div>
     `;
 
-    const header = this.querySelector('#hotkey-header');
-    const content = this.querySelector('#hotkey-content');
-    const icon = this.querySelector('#hotkey-icon');
+    const header = this.querySelector('#config-header');
+    const content = this.querySelector('#config-content');
+    const icon = this.querySelector('#config-icon');
 
     header.addEventListener('click', () => {
       content.classList.toggle('open');

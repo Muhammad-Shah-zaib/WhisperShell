@@ -14,9 +14,8 @@
         "width": 520,
         "height": 620,
         "resizable": true,
-        "maximizable": false,
-        "decorations": false,
-        "transparent": true,
+        "maximizable": true,
+        "decorations": true,
         "center": true
       },
       {

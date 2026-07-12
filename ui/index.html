@@ -5,25 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WhisperShell</title>
   <link rel="icon" type="image/svg+xml" href="icons/whispershell-icon.svg" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Roboto:wght@400;500&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
   <link rel="stylesheet" href="styles.css" />
   <style>
     .spin { animation: spin 1s linear infinite; }
     @keyframes spin { 100% { transform: rotate(360deg); } }
     .badge {
+      font-family: 'Roboto Mono', monospace;
       font-size: 0.75rem;
-      background: #b4a0e522;
-      color: #b4a0e5;
-      padding: 2px 8px;
-      border-radius: 12px;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 0;
       margin-left: 12px;
       font-weight: 500;
-      border: 1px solid #b4a0e544;
       display: inline-flex;
       align-items: center;
       gap: 6px;
       cursor: default;
+      letter-spacing: 0.5px;
     }
     .model-status-dot {
       width: 6px;
@@ -37,62 +37,18 @@
     .model-status-dot.yellow { background: #facc15; }
     .model-status-dot.red { background: #f87171; }
     .badge:hover .model-status-dot {
-      border: 1px solid var(--lavender);
+      background: #4a337a;
     }
   </style>
 </head>
 <body>
   
-  <header class="app-header" data-tauri-drag-region>
-    <div class="logo-group" data-tauri-drag-region>
-      <img src="icons/whispershell-icon.svg" alt="WhisperShell Logo" data-tauri-drag-region />
-      <span data-tauri-drag-region>WhisperShell</span>
-    </div>
-    
-    <div class="header-right">
-      <div class="status-indicator" id="status-indicator">
-      <!-- Idle State -->
-      <div class="state active" id="state-idle">
-        <div class="idle-dot"></div>
-      </div>
-      <!-- Recording State -->
-      <div class="state" id="state-recording">
-        <div class="bars">
-          <div class="bar"></div>
-          <div class="bar"></div>
-          <div class="bar"></div>
-          <div class="bar"></div>
-          <div class="bar"></div>
-        </div>
-      </div>
-      <!-- Processing State -->
-      <div class="state" id="state-processing">
-        <div class="dots">
-          <div class="dot-jump"></div>
-          <div class="dot-jump"></div>
-          <div class="dot-jump"></div>
-        </div>
-      </div>
-      <!-- Done State -->
-      <div class="state" id="state-done">
-        <div class="done-icon"><span class="iconify" data-icon="mdi:check"></span></div>
-      </div>
-      
-      <!-- Window Controls -->
-      <div class="window-controls">
-        <div class="control-btn minimize" id="titlebar-minimize" title="Minimize">
-          <span class="iconify" data-icon="mdi:minus"></span>
-        </div>
-        <div class="control-btn close" id="titlebar-close" title="Close">
-          <span class="iconify" data-icon="mdi:close"></span>
-        </div>
-      </div>
-    </div>
-  </header>
+
 
   <main class="main-content">
     <model-selection></model-selection>
     <hotkey-setup></hotkey-setup>
+    <config-toggle></config-toggle>
     <file-paths></file-paths>
     <history-limit></history-limit>
     <overlay-size></overlay-size>
@@ -126,82 +82,7 @@
       invoke('log_to_terminal', { msg }).catch(console.error);
     }
     
-    // Window Controls
-    document.getElementById('titlebar-minimize').addEventListener('click', () => {
-      window.__TAURI__.window.getCurrentWindow().minimize();
-    });
-    
-    document.getElementById('titlebar-close').addEventListener('click', () => {
-      window.__TAURI__.window.getCurrentWindow().hide();
-    });
 
-    document.querySelector('.app-header').addEventListener('mousedown', (e) => {
-      if (e.button === 0 && !e.target.closest('.window-controls')) {
-        window.__TAURI__.window.getCurrentWindow().startDragging();
-      }
-    });
-
-    const stateIdle = document.getElementById('state-idle');
-    const stateRecording = document.getElementById('state-recording');
-    const stateProcessing = document.getElementById('state-processing');
-    const stateDone = document.getElementById('state-done');
-
-    function showState(el) {
-      [stateIdle, stateRecording, stateProcessing, stateDone].forEach(s => s.classList.remove('active'));
-      el.classList.add('active');
-    }
-
-    event.listen('state_changed', (e) => {
-      if (e.payload === 'Recording') {
-        showState(stateRecording);
-      } else {
-        // Reset bars when stopping recording
-        const bars = document.querySelectorAll('.bar');
-        bars.forEach(bar => {
-           bar.style.animation = ''; 
-           bar.style.transform = '';
-           bar.style.height = ''; // Clear JS inline heights
-        });
-        
-        if (e.payload === 'Processing') {
-          showState(stateProcessing);
-        } else if (e.payload === 'Idle') {
-          showState(stateIdle);
-        }
-      }
-    });
-
-    event.listen('audio_level', (e) => {
-      const rms = e.payload;
-      
-      // Calculate a base height based on RMS. RMS for speech usually peaks around 0.1 - 0.2.
-      // We map rms 0.0 -> height 3px, rms 0.15 -> height 16px.
-      const baseHeight = Math.min(16, Math.max(3, 3 + (rms * 86)));
-
-      const bars = document.querySelectorAll('.bar');
-      const multipliers = [0.5, 0.8, 1.0, 0.9, 0.6]; // Bell curve for a classic waveform look
-      
-      bars.forEach((bar, i) => {
-        bar.style.animation = 'none'; // Stop CSS animation
-        bar.style.transform = 'none'; // Clear any previous scaleY
-        
-        let jitter = 0;
-        if (rms > 0.01) {
-            // Add a little randomness when actually speaking
-            jitter = (Math.random() * 4) - 2; 
-        }
-        
-        let h = (baseHeight * multipliers[i]) + jitter;
-        h = Math.min(16, Math.max(3, h)); // Constrain strictly between 3px and 16px
-        bar.style.height = `${h}px`;
-      });
-    });
-
-    event.listen('transcript_ready', (e) => {
-      showState(stateDone);
-      // Reset back to idle after 3 seconds
-      setTimeout(() => showState(stateIdle), 3000);
-    });
 
     function updateModelBadge(text, statusColor) {
       const modelBadge = document.getElementById('active-model-badge');

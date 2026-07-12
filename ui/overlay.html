@@ -9,10 +9,10 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      /* Lavender-black theme */
-      --bg-card: rgba(18, 15, 24, 0.9);
-      --border:  rgba(180, 160, 220, 0.15);
-      --accent:  #b4a0e5;
+      /* Minimal modern theme */
+      --bg-card: rgba(26, 26, 26, 0.9);
+      --border: transparent;
+      --accent: #b4a0e5;
       --text-primary: #e8eaf0;
       --success: #b4a0e5;
     }
@@ -32,7 +32,7 @@
       background: var(--bg-card);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--border);
+      border: none;
       border-radius: 999px;
       padding: 6px 12px;
       display: flex;
