@@ -135,6 +135,53 @@ export class CustomSelect extends HTMLElement {
           padding: 2px 6px;
           border-radius: 4px;
         }
+        .download-btn, .cancel-btn {
+          font-size: 11px;
+          padding: 4px 8px;
+          border-radius: 4px;
+          border: none;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        .download-btn {
+          background: rgba(180, 160, 220, 0.15);
+          color: var(--lavender);
+        }
+        .download-btn:hover {
+          background: rgba(180, 160, 220, 0.3);
+        }
+        .cancel-btn {
+          background: rgba(255, 100, 100, 0.15);
+          color: #ff8888;
+        }
+        .cancel-btn:hover {
+          background: rgba(255, 100, 100, 0.3);
+        }
+        .progress-text {
+          font-size: 11px;
+          color: var(--silver);
+          min-width: 28px;
+          text-align: right;
+        }
+        .progress-container {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 180px;
+        }
+        .progress-bar-bg {
+          flex: 1;
+          height: 4px;
+          background: rgba(0, 0, 0, 0.5); /* Dark background */
+          border-radius: 2px;
+          overflow: hidden;
+        }
+        .progress-bar-fill {
+          height: 100%;
+          background: var(--lavender);
+          width: 0%;
+          transition: width 0.1s linear;
+        }
       </style>
       <div class="custom-select-wrapper ${this.isOpen ? 'open' : ''}">
         <div class="custom-select-trigger">
@@ -143,9 +190,17 @@ export class CustomSelect extends HTMLElement {
         </div>
         <div class="custom-select-dropdown ${this.isOpen ? 'open' : ''}">
           ${this.options.map(o => `
-            <div class="custom-select-option ${o.value === this.value ? 'selected' : ''} ${o.disabled ? 'disabled' : ''}" data-value="${o.value}">
+            <div class="custom-select-option ${o.value === this.value ? 'selected' : ''} ${(o.disabled || o.downloading) ? 'disabled' : ''}" data-value="${o.value}">
               <span>${o.label}</span>
-              ${o.disabled ? '<span class="status-tag">Need to be downloaded</span>' : ''}
+              ${o.downloading ? `
+                <div class="progress-container">
+                  <span class="progress-text">${Math.round(o.progress || 0)}%</span>
+                  <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width: ${o.progress || 0}%"></div>
+                  </div>
+                  <button class="cancel-btn" data-action="cancel" data-model="${o.value}">Cancel</button>
+                </div>
+              ` : (o.disabled ? `<button class="download-btn" data-action="download" data-model="${o.value}">Download</button>` : '')}
             </div>
           `).join('')}
         </div>
@@ -166,12 +221,23 @@ export class CustomSelect extends HTMLElement {
     optionEls.forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
+        
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+          const action = actionBtn.dataset.action;
+          const modelId = actionBtn.dataset.model;
+          if (action === 'download') {
+            this.dispatchEvent(new CustomEvent('download', { detail: { value: modelId }, bubbles: true, composed: true }));
+          } else if (action === 'cancel') {
+            this.dispatchEvent(new CustomEvent('cancelDownload', { detail: { value: modelId }, bubbles: true, composed: true }));
+          }
+          return;
+        }
+
         if (el.classList.contains('disabled')) return;
         
         this.isOpen = false;
         this.value = el.dataset.value;
-        // this.render() is called automatically because setting this.value calls setAttribute, 
-        // which triggers attributeChangedCallback which calls this.render().
         this.dispatchEvent(new CustomEvent('change', { 
           detail: { value: this.value },
           bubbles: true,
@@ -179,5 +245,23 @@ export class CustomSelect extends HTMLElement {
         }));
       });
     });
+  }
+
+  updateProgress(modelId, progress) {
+    // Update internal state silently
+    const opt = this.options.find(o => String(o.value) === String(modelId));
+    if (opt) {
+      opt.progress = progress;
+      opt.downloading = true;
+    }
+    
+    // Selectively update DOM elements instead of re-rendering everything
+    const optionEl = this.querySelector(`.custom-select-option[data-value="${modelId}"]`);
+    if (optionEl) {
+      const fill = optionEl.querySelector('.progress-bar-fill');
+      const text = optionEl.querySelector('.progress-text');
+      if (fill) fill.style.width = `${progress}%`;
+      if (text) text.textContent = `${Math.round(progress)}%`;
+    }
   }
 }

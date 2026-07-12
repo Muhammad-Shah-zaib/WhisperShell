@@ -47,6 +47,24 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libasound2",
+          "libvulkan1",
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "alsa-lib",
+          "vulkan-loader",
+          "webkit2gtk4.1",
+          "gtk3"
+        ]
+      }
+    }
   }
 }

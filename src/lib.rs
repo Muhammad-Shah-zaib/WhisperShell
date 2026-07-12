@@ -9,6 +9,7 @@ use injection::copy_to_clipboard;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
@@ -28,6 +29,7 @@ pub struct AppState {
     pub recorder: Option<AudioRecorder>,
     pub whisper_ctx: Option<WhisperContext>,
     pub last_transcript: String,
+    pub download_cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 impl AppState {
@@ -37,6 +39,7 @@ impl AppState {
             recorder: None,
             whisper_ctx: None,
             last_transcript: String::new(),
+            download_cancel_flag: None,
         }
     }
 }
@@ -52,7 +55,7 @@ use constants::HOTKEY_DISPLAY;
 #[tauri::command]
 fn get_app_info(app: tauri::AppHandle) -> serde_json::Value {
     let config = load_config(app);
-    let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo");
+    let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet");
     
     serde_json::json!({
         "model": get_model_display_name(model_key),
@@ -110,6 +113,101 @@ fn get_installed_models(app: tauri::AppHandle) -> Vec<String> {
     models
 }
 
+#[derive(serde::Serialize, Clone)]
+struct DownloadProgress {
+    model_id: String,
+    progress: f64,
+    downloaded: u64,
+    total: u64,
+}
+
+#[tauri::command]
+async fn download_model(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+    model_id: String,
+    filename: String,
+) -> Result<(), String> {
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    {
+        let mut s = state.lock().unwrap();
+        s.download_cancel_flag = Some(cancel_flag.clone());
+    }
+
+    let url = if filename.starts_with("ggml-") {
+        format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", filename)
+    } else {
+        // Fallback for non-ggerganov models if hosted elsewhere
+        format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", filename) 
+    };
+
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let models_dir = data_dir.join("models");
+    std::fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
+
+    let tmp_path = models_dir.join(format!("{}.tmp", filename));
+    let final_path = models_dir.join(&filename);
+
+    let mut response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    let total_size = response.content_length().unwrap_or(0);
+
+    let mut file = std::fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
+    use std::io::Write;
+    use futures_util::StreamExt;
+
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+
+    while let Some(item) = stream.next().await {
+        if cancel_flag.load(Ordering::SeqCst) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err("Download cancelled".to_string());
+        }
+        let chunk = item.map_err(|e| e.to_string())?;
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+
+        let progress = if total_size > 0 {
+            (downloaded as f64 / total_size as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        let _ = app.emit("download_progress", DownloadProgress {
+            model_id: model_id.clone(),
+            progress,
+            downloaded,
+            total: total_size,
+        });
+    }
+
+    if cancel_flag.load(Ordering::SeqCst) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err("Download cancelled".to_string());
+    }
+
+    std::fs::rename(&tmp_path, &final_path).map_err(|e| e.to_string())?;
+
+    let _ = app.emit("download_complete", model_id);
+
+    {
+        let mut s = state.lock().unwrap();
+        s.download_cancel_flag = None;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_download(state: tauri::State<Arc<Mutex<AppState>>>) -> Result<(), String> {
+    let s = state.lock().unwrap();
+    if let Some(flag) = &s.download_cancel_flag {
+        flag.store(true, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+
 #[tauri::command]
 fn load_config(app: tauri::AppHandle) -> serde_json::Value {
     if let Ok(config_dir) = app.path().app_config_dir() {
@@ -123,7 +221,7 @@ fn load_config(app: tauri::AppHandle) -> serde_json::Value {
     
     // Default config
     serde_json::json!({
-        "model": "turbo",
+        "model": "parakeet",
         "history_limit": "5",
         "overlay_size": "small",
         "voice_recordings_dir": "~/.local/share/whispershell/recordings",
@@ -135,8 +233,8 @@ fn load_config(app: tauri::AppHandle) -> serde_json::Value {
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, state: tauri::State<Arc<Mutex<AppState>>>, config: serde_json::Value) -> Result<(), String> {
     let old_config = load_config(app.clone());
-    let old_model = old_config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo").to_string();
-    let new_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo").to_string();
+    let old_model = old_config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet").to_string();
+    let new_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet").to_string();
     
     let model_changed = old_model != new_model;
 
@@ -247,14 +345,14 @@ fn save_config(app: tauri::AppHandle, state: tauri::State<Arc<Mutex<AppState>>>,
 
 fn resolve_model_path(app: &tauri::AppHandle) -> PathBuf {
     let config = load_config(app.clone());
-    let selected_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo");
+    let selected_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet");
     
     let filename = match selected_model {
         "base" => "ggml-base.en.bin",
         "turbo" => "ggml-large-v3-turbo.bin",
         "large" => "ggml-large-v3.bin",
         "parakeet" => "parakeet-v3.bin",
-        _ => "ggml-large-v3-turbo.bin",
+        _ => "parakeet-v3.bin",
     };
 
     app.path().app_data_dir().unwrap_or_default().join("models").join(filename)
@@ -488,10 +586,56 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"])
+        ))
         .manage(shared_state.clone())
         .setup(move |app| {
+            use tauri_plugin_autostart::ManagerExt;
+            
+            // Auto-enable autostart if it's not explicitly disabled by user
+            // In a real app we'd track this in config, but since user requested "open by default", we enforce it here:
+            let _ = app.autolaunch().enable();
+
+            // Hide main window if launched via autostart
+            let args: Vec<String> = std::env::args().collect();
+            if args.iter().any(|arg| arg == "--autostart") {
+                if let Some(main_win) = app.get_webview_window("main") {
+                    let _ = main_win.hide();
+                }
+            }
+
             let app_handle = app.handle().clone();
             let state_for_hotkey = shared_state.clone();
+
+            // ── System Tray ────────────────────────────────────────────────
+            use tauri::tray::TrayIconBuilder;
+            use tauri::menu::{Menu, MenuItem};
+
+            if let (Ok(quit_i), Ok(show_i)) = (
+                MenuItem::with_id(app, "quit", "Quit", true, None::<&str>),
+                MenuItem::with_id(app, "show", "Settings", true, None::<&str>)
+            ) {
+                if let Ok(menu) = Menu::with_items(app, &[&show_i, &quit_i]) {
+                    if let Some(icon) = app.default_window_icon() {
+                        let _ = TrayIconBuilder::new()
+                            .icon(icon.clone())
+                            .menu(&menu)
+                            .on_menu_event(|app, event| match event.id.as_ref() {
+                                "quit" => app.exit(0),
+                                "show" => {
+                                    if let Some(win) = app.get_webview_window("main") {
+                                        let _ = win.show();
+                                        let _ = win.set_focus();
+                                    }
+                                }
+                                _ => {}
+                            })
+                            .build(app);
+                    }
+                }
+            }
 
             // ── Start IPC listener via Unix Domain Socket ────────────────
             // Listens for external signals (like "--toggle-recording")
@@ -563,7 +707,7 @@ pub fn run() {
                         }
                         println!("[WhisperShell] ✅ Model loaded and ready!");
                         let config = load_config(app_handle2.clone());
-                        let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("turbo");
+                        let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet");
                         let _ = app_handle2.emit("model_ready", get_model_display_name(model_key));
                     }
                     Err(e) => {
@@ -583,7 +727,9 @@ pub fn run() {
             get_installed_models,
             load_config,
             save_config,
-            log_to_terminal
+            log_to_terminal,
+            download_model,
+            cancel_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -21,6 +21,7 @@ export class ModelSelection extends HTMLElement {
 
   async loadModels() {
     const invoke = window.__TAURI__.core ? window.__TAURI__.core.invoke : window.__TAURI__.invoke;
+    const event = window.__TAURI__.event || window.__TAURI__.core?.event;
     
     // Default known models
     const knownModels = [
@@ -37,18 +38,78 @@ export class ModelSelection extends HTMLElement {
       console.error("Failed to fetch installed models:", e);
     }
 
-    const options = knownModels.map(m => {
+    let options = knownModels.map(m => {
       const isInstalled = installedFiles.includes(m.filename);
       return {
         value: m.id,
         label: m.label,
+        filename: m.filename,
         disabled: !isInstalled,
-        // Optional: Custom select can handle extra fields if we updated it, but for now we'll just append text if we want,
-        // actually CustomSelect already checks `o.disabled` and appends a tag. We'll update CustomSelect to say "Need to be downloaded".
+        downloading: false,
+        progress: 0
       };
     });
 
     const select = this.querySelector('#model-select');
     select.setAttribute('options', JSON.stringify(options));
+
+    // Cleanup previous listeners if we reload
+    if (this._unlistenProgress) this._unlistenProgress();
+    if (this._unlistenComplete) this._unlistenComplete();
+
+    this._unlistenProgress = await event.listen('download_progress', (e) => {
+      const { model_id, progress } = e.payload;
+      // Directly update the specific progress bar to prevent full DOM re-rendering (glitching)
+      if (select && select.updateProgress) {
+        select.updateProgress(model_id, progress);
+      }
+      
+      // Keep local state in sync
+      options = options.map(o => {
+        if (o.value === model_id) {
+          return { ...o, downloading: true, progress };
+        }
+        return o;
+      });
+    });
+
+    this._unlistenComplete = await event.listen('download_complete', (e) => {
+      const model_id = e.payload;
+      options = options.map(o => {
+        if (o.value === model_id) {
+          return { ...o, downloading: false, disabled: false, progress: 0 };
+        }
+        return o;
+      });
+      select.setAttribute('options', JSON.stringify(options));
+      // Optionally auto-select the newly downloaded model if it's the only one or if the user wanted it
+      select.value = model_id;
+      select.dispatchEvent(new CustomEvent('change', { detail: { value: model_id }, bubbles: true, composed: true }));
+    });
+
+    select.addEventListener('download', async (e) => {
+      const modelId = e.detail.value;
+      const model = options.find(o => o.value === modelId);
+      if (model) {
+        options = options.map(o => o.value === modelId ? { ...o, downloading: true, progress: 0 } : o);
+        select.setAttribute('options', JSON.stringify(options));
+        try {
+          await invoke('download_model', { modelId, filename: model.filename });
+        } catch (err) {
+          console.error("Download failed or cancelled:", err);
+          // Revert state
+          options = options.map(o => o.value === modelId ? { ...o, downloading: false, progress: 0 } : o);
+          select.setAttribute('options', JSON.stringify(options));
+        }
+      }
+    });
+
+    select.addEventListener('cancelDownload', async (e) => {
+      try {
+        await invoke('cancel_download');
+      } catch (err) {
+        console.error("Failed to cancel download:", err);
+      }
+    });
   }
 }
