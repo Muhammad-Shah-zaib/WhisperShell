@@ -136,6 +136,8 @@ async fn download_model(
 
     let url = if filename.starts_with("ggml-") {
         format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", filename)
+    } else if filename == "parakeet-v3.bin" {
+        "https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf".to_string()
     } else {
         // Fallback for non-ggerganov models if hosted elsewhere
         format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", filename) 
@@ -148,7 +150,12 @@ async fn download_model(
     let tmp_path = models_dir.join(format!("{}.tmp", filename));
     let final_path = models_dir.join(&filename);
 
-    let mut response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Failed to download model: HTTP {}", response.status()));
+    }
+
     let total_size = response.content_length().unwrap_or(0);
 
     let mut file = std::fs::File::create(&tmp_path).map_err(|e| e.to_string())?;
@@ -603,6 +610,20 @@ pub fn run() {
             if args.iter().any(|arg| arg == "--autostart") {
                 if let Some(main_win) = app.get_webview_window("main") {
                     let _ = main_win.hide();
+                }
+            }
+
+            // Cleanup orphaned .tmp model files from interrupted downloads
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                let models_dir = data_dir.join("models");
+                if let Ok(entries) = std::fs::read_dir(&models_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.ends_with(".tmp") {
+                                let _ = std::fs::remove_file(entry.path());
+                            }
+                        }
+                    }
                 }
             }
 
