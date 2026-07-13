@@ -7,7 +7,10 @@ URL:            https://github.com/Muhammad-Shah-zaib/WhisperShell
 
 Source0:        https://github.com/Muhammad-Shah-zaib/WhisperShell/releases/download/v%{version}/WhisperShell-%{version}-1.x86_64.rpm
 
-BuildArch:      x86_64
+# Use ExclusiveArch instead of BuildArch so alternate architecture build nodes
+# (like aarch64) can parse and build the Source RPM package without crashing.
+ExclusiveArch:  x86_64
+
 # Disable debug package generation since we are repackaging a pre-built binary
 %define debug_package %{nil}
 
@@ -27,8 +30,8 @@ mkdir -p %{buildroot}
 cp -r usr/* %{buildroot}/
 
 %files
-/usr/bin/whispershell
-/usr/share/applications/WhisperShell.desktop
-/usr/share/icons/hicolor/128x128/apps/whispershell.png
-/usr/share/icons/hicolor/256x256@2/apps/whispershell.png
-/usr/share/icons/hicolor/32x32/apps/whispershell.png
+%{_bindir}/whispershell
+%{_datadir}/applications/WhisperShell.desktop
+%{_datadir}/icons/hicolor/128x128/apps/whispershell.png
+%{_datadir}/icons/hicolor/256x256@2/apps/whispershell.png
+%{_datadir}/icons/hicolor/32x32/apps/whispershell.png
