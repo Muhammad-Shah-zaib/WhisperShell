@@ -25,9 +25,10 @@ rpm2cpio %{SOURCE0} | cpio -idmv
 # Nothing to compile
 
 %install
-# Copy the extracted directory structure directly to the installation root
-mkdir -p %{buildroot}
-cp -r usr/* %{buildroot}/
+# Create the /usr directory inside the installation root
+mkdir -p %{buildroot}/usr
+# Copy the extracted contents into the newly created /usr folder
+cp -a usr/* %{buildroot}/usr/
 
 %files
 %{_bindir}/whispershell
