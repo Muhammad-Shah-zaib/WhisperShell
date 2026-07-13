@@ -23,23 +23,22 @@
       background: transparent;
       overflow: hidden;
       display: flex;
-      align-items: flex-end;
+      align-items: center;
       justify-content: center;
     }
 
     /* ── Pill ── */
     .pill {
-      background: var(--bg-card);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: #1a1a1a; /* Solid color to prevent compositing ghosting on Linux */
       border: none;
       border-radius: 999px;
       padding: 6px 12px;
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 12px;
-      width: fit-content;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      width: 84px; /* Fixed width prevents trailing artifacts when size changes */
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
       transition: all 0.3s ease;
       margin-bottom: 0;
       height: 36px;

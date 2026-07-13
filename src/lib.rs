@@ -55,7 +55,7 @@ use constants::HOTKEY_DISPLAY;
 #[tauri::command]
 fn get_app_info(app: tauri::AppHandle) -> serde_json::Value {
     let config = load_config(app);
-    let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet");
+    let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("base");
     
     serde_json::json!({
         "model": get_model_display_name(model_key),
@@ -136,8 +136,6 @@ async fn download_model(
 
     let url = if filename.starts_with("ggml-") {
         format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", filename)
-    } else if filename == "parakeet-v3.bin" {
-        "https://huggingface.co/cstr/parakeet-tdt-0.6b-v3-GGUF/resolve/main/parakeet-tdt-0.6b-v3-q8_0.gguf".to_string()
     } else {
         // Fallback for non-ggerganov models if hosted elsewhere
         format!("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{}", filename) 
@@ -228,7 +226,7 @@ fn load_config(app: tauri::AppHandle) -> serde_json::Value {
     
     // Default config
     serde_json::json!({
-        "model": "parakeet",
+        "model": "base",
         "history_limit": "5",
         "overlay_size": "small",
         "voice_recordings_dir": "~/.local/share/whispershell/recordings",
@@ -240,8 +238,8 @@ fn load_config(app: tauri::AppHandle) -> serde_json::Value {
 #[tauri::command]
 fn save_config(app: tauri::AppHandle, state: tauri::State<Arc<Mutex<AppState>>>, config: serde_json::Value) -> Result<(), String> {
     let old_config = load_config(app.clone());
-    let old_model = old_config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet").to_string();
-    let new_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet").to_string();
+    let old_model = old_config.get("model").and_then(|v| v.as_str()).unwrap_or("base").to_string();
+    let new_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("base").to_string();
     
     let model_changed = old_model != new_model;
 
@@ -352,14 +350,12 @@ fn save_config(app: tauri::AppHandle, state: tauri::State<Arc<Mutex<AppState>>>,
 
 fn resolve_model_path(app: &tauri::AppHandle) -> PathBuf {
     let config = load_config(app.clone());
-    let selected_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet");
+    let selected_model = config.get("model").and_then(|v| v.as_str()).unwrap_or("base");
     
     let filename = match selected_model {
         "base" => "ggml-base.en.bin",
         "turbo" => "ggml-large-v3-turbo.bin",
-        "large" => "ggml-large-v3.bin",
-        "parakeet" => "parakeet-v3.bin",
-        _ => "parakeet-v3.bin",
+        _ => "ggml-base.en.bin",
     };
 
     app.path().app_data_dir().unwrap_or_default().join("models").join(filename)
@@ -369,8 +365,6 @@ fn get_model_display_name(model_key: &str) -> &'static str {
     match model_key {
         "base" => "Whisper Base",
         "turbo" => "Whisper Turbo",
-        "large" => "Whisper Large v3",
-        "parakeet" => "Parakeet v3",
         _ => "Unknown Model",
     }
 }
@@ -597,6 +591,13 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"])
         ))
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+            _ => {}
+        })
         .manage(shared_state.clone())
         .setup(move |app| {
             use tauri_plugin_autostart::ManagerExt;
@@ -728,7 +729,7 @@ pub fn run() {
                         }
                         println!("[WhisperShell] ✅ Model loaded and ready!");
                         let config = load_config(app_handle2.clone());
-                        let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("parakeet");
+                        let model_key = config.get("model").and_then(|v| v.as_str()).unwrap_or("base");
                         let _ = app_handle2.emit("model_ready", get_model_display_name(model_key));
                     }
                     Err(e) => {

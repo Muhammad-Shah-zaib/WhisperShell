@@ -23,12 +23,9 @@ export class ModelSelection extends HTMLElement {
     const invoke = window.__TAURI__.core ? window.__TAURI__.core.invoke : window.__TAURI__.invoke;
     const event = window.__TAURI__.event || window.__TAURI__.core?.event;
     
-    // Default known models
     const knownModels = [
       { id: "base", filename: "ggml-base.en.bin", label: "Whisper Base" },
-      { id: "turbo", filename: "ggml-large-v3-turbo.bin", label: "Whisper Turbo" },
-      { id: "large", filename: "ggml-large-v3.bin", label: "Whisper Large" },
-      { id: "parakeet", filename: "parakeet-v3.bin", label: "Parakeet v3" }
+      { id: "turbo", filename: "ggml-large-v3-turbo.bin", label: "Whisper Turbo" }
     ];
 
     let installedFiles = [];
